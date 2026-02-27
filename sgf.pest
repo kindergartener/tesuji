@@ -1,0 +1,8 @@
+file        = { SOI ~ object+ ~ EOI }
+WHITESPACE  = _{ " " | "\t" | "\r" | "\n" }
+node_value  =  { (!"]" ~ ANY)* }
+node_item   = _{ "[" ~ node_value ~ "]" }
+prop_ident  =  { ASCII_ALPHA_UPPER+ }
+property    =  { prop_ident ~ node_item+ }
+node        =  { ";" ~ property* }
+object      =  { "(" ~ (node | object)* ~ ")" }
