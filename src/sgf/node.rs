@@ -192,6 +192,91 @@ impl FromStr for FileFormat {
     }
 }
 
+impl Display for Komi {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let n = self.0;
+        if n % 2 == 0 {
+            write!(f, "{}", n / 2)
+        } else {
+            write!(f, "{}.5", n / 2)
+        }
+    }
+}
+
+impl Display for FileFormat {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let n = match self {
+            Self::FF1 => 1,
+            Self::FF2 => 2,
+            Self::FF3 => 3,
+            Self::FF4 => 4,
+        };
+        write!(f, "{}", n)
+    }
+}
+
+impl Display for GameType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let n = match self {
+            Self::Go => 1,
+            Self::Other(other) => *other,
+        };
+        write!(f, "{}", n)
+    }
+}
+
+impl Display for Charset {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::UTF8 => "UTF-8",
+            Self::Latin1 => "Latin-1",
+            Self::Other(other) => other,
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl Display for SGFProperty {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AP(s) => write!(f, "AP[{}]", s),
+            Self::B(coord) => write!(f, "B[{}]", coord),
+            Self::W(coord) => write!(f, "W[{}]", coord),
+            Self::AB(coords) => {
+                write!(f, "AB")?;
+                for coord in coords {
+                    write!(f, "[{}]", coord)?;
+                }
+                Ok(())
+            }
+            Self::AW(coords) => {
+                write!(f, "AW")?;
+                for coord in coords {
+                    write!(f, "[{}]", coord)?;
+                }
+                Ok(())
+            }
+            Self::CA(charset) => write!(f, "CA[{}]", charset),
+            Self::DT(s) => write!(f, "DT[{}]", s),
+            Self::FF(ff) => write!(f, "FF[{}]", ff),
+            Self::GM(gt) => write!(f, "GM[{}]", gt),
+            Self::KM(komi) => write!(f, "KM[{}]", komi),
+            Self::SZ(n) => write!(f, "SZ[{}]", n),
+            Self::PB(s) => write!(f, "PB[{}]", s),
+            Self::PW(s) => write!(f, "PW[{}]", s),
+            Self::RE(s) => write!(f, "RE[{}]", s),
+            Self::C(s) => write!(f, "C[{}]", s),
+            Self::Unknown(key, values) => {
+                write!(f, "{}", key)?;
+                for v in values {
+                    write!(f, "[{}]", v)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 impl FromStr for Charset {
     type Err = anyhow::Error;
 
