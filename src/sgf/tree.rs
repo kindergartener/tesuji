@@ -39,7 +39,14 @@ impl GameTree {
     }
 
     /// Unlink `id` from its parent's children list.
-    /// The orphaned subtree remains in the arena.
+    ///
+    /// The orphaned nodes remain in the arena (`nodes` Vec) and are never
+    /// reclaimed, so the Vec only ever grows. For typical SGF editing sessions
+    /// this is negligible (a full 300-move game is ~300 nodes). If heavy
+    /// editing (repeated delete/add cycles) becomes a real use-case, a
+    /// compaction pass or a free-list could be introduced: keep a
+    /// `Vec<NodeId>` of recycled slots and hand them out in `add_node` before
+    /// pushing to the end of the Vec.
     pub fn remove_subtree(&mut self, id: NodeId) {
         if let Some(parent) = self.nodes[id].parent {
             self.nodes[parent].children.retain(|&c| c != id);
