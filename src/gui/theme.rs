@@ -19,3 +19,6 @@ pub const GHOST_ALPHA: f32 = 0.40;
 pub const STATUS_INFO: Color = Color::from_rgb(0.2, 0.6, 0.2);
 pub const STATUS_WARNING: Color = Color::from_rgb(0.8, 0.6, 0.0);
 pub const STATUS_ERROR: Color = Color::from_rgb(0.8, 0.2, 0.2);
+
+// Tree panel
+pub const TREE_CURSOR_RING: Color = Color::from_rgb(0.15, 0.55, 0.95);

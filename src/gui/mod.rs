@@ -1,19 +1,24 @@
 pub mod board;
+pub mod hotkeys;
 pub mod io;
 pub mod theme;
+pub mod tree_panel;
 
 use std::path::PathBuf;
 
 use iced::{
-    Element, Length, Task,
+    Color, Element, Length, Task,
     widget::{button, canvas::Canvas, column, container, row, text},
 };
 
 use crate::{
     EditCommand, Editor,
-    gui::board::{BoardProgram, current_player},
+    gui::{
+        board::{BoardProgram, current_player},
+        tree_panel::TreePanelProgram,
+    },
     parse_sgf,
-    sgf::{Board, Cell, GameTree, SGFProperty, node::GoCoord},
+    sgf::{Board, Cell, GameTree, NodeId, SGFProperty, node::GoCoord},
     write_sgf,
 };
 
@@ -24,6 +29,7 @@ pub struct GuiApp {
     pub active_game_index: usize,
     pub status_message: Option<StatusMessage>,
     pub hover_coord: Option<(usize, usize)>,
+    pub confirm_delete: bool,
 }
 
 pub struct StatusMessage {
@@ -63,10 +69,21 @@ pub enum Message {
     BoardHovered { col: Option<usize>, row: Option<usize> },
     PassRequested,
 
+    // Delete node
+    DeleteNodeConfirmed,
+    DeleteNodeCancelled,
+
     // Tree navigation
     NavigateNext,
     NavigatePrev,
+    NavigateFirst,
+    NavigateLast,
     NavigateBranch(usize),
+    NavigateToNode(NodeId),
+
+    // Undo / Redo
+    UndoRequested,
+    RedoRequested,
 
     // Game management
     NewGameRequested,
@@ -87,6 +104,7 @@ impl GuiApp {
                 active_game_index: 0,
                 status_message: None,
                 hover_coord: None,
+                confirm_delete: false,
             },
             Task::none(),
         )
@@ -138,15 +156,49 @@ impl GuiApp {
             Message::FileSaved(Err(e)) => {
                 self.status_message = Some(StatusMessage::error(format!("Save failed: {e}")));
             }
-            Message::BoardClicked { col, row } => match try_place_stone(self, col, row) {
-                Ok(cmd) => {
-                    self.editor.apply(cmd);
-                    self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+            Message::BoardClicked { col, row } => {
+                // Check if clicking on the last-move marker → trigger delete confirmation
+                if let Some((last_col, last_row)) = last_move_coord(&self.editor)
+                    && col == last_col && row == last_row
+                {
+                    self.confirm_delete = true;
+                    return Task::none();
                 }
-                Err(msg) => {
-                    self.status_message = Some(StatusMessage::error(msg));
+
+                match try_place_stone(self, col, row) {
+                    Ok(EditCommand::AddMove(ref prop)) => {
+                        // Check for existing child with the same move (auto-variation)
+                        let move_coord = match prop {
+                            SGFProperty::B(c) | SGFProperty::W(c) => *c,
+                            _ => unreachable!(),
+                        };
+                        let existing = self
+                            .editor
+                            .tree
+                            .node(self.editor.cursor)
+                            .children
+                            .iter()
+                            .find(|&&id| {
+                                self.editor.tree.node(id).properties.iter().any(|p| match p {
+                                    SGFProperty::B(c) | SGFProperty::W(c) => *c == move_coord,
+                                    _ => false,
+                                })
+                            })
+                            .copied();
+                        if let Some(child_id) = existing {
+                            self.editor.cursor = child_id;
+                        } else {
+                            self.editor.apply(EditCommand::AddMove(prop.clone()));
+                        }
+                        self.cached_board =
+                            Board::from_tree(&self.editor.tree, self.editor.cursor);
+                    }
+                    Ok(_) => unreachable!(),
+                    Err(msg) => {
+                        self.status_message = Some(StatusMessage::error(msg));
+                    }
                 }
-            },
+            }
             Message::BoardHovered { col, row } => {
                 self.hover_coord = col.zip(row);
             }
@@ -160,6 +212,14 @@ impl GuiApp {
                 self.editor.apply(EditCommand::AddMove(prop));
                 self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
             }
+            Message::DeleteNodeConfirmed => {
+                self.confirm_delete = false;
+                self.editor.apply(EditCommand::DeleteCurrentNode);
+                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+            }
+            Message::DeleteNodeCancelled => {
+                self.confirm_delete = false;
+            }
             Message::NavigateNext => {
                 self.editor.apply(EditCommand::NavigateNext);
                 self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
@@ -168,8 +228,28 @@ impl GuiApp {
                 self.editor.apply(EditCommand::NavigatePrev);
                 self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
             }
+            Message::NavigateFirst => {
+                self.editor.apply(EditCommand::NavigateFirst);
+                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+            }
+            Message::NavigateLast => {
+                self.editor.apply(EditCommand::NavigateLast);
+                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+            }
             Message::NavigateBranch(n) => {
                 self.editor.apply(EditCommand::NavigateBranch(n));
+                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+            }
+            Message::NavigateToNode(id) => {
+                self.editor.cursor = id;
+                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+            }
+            Message::UndoRequested => {
+                self.editor.apply(EditCommand::Undo);
+                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+            }
+            Message::RedoRequested => {
+                self.editor.apply(EditCommand::Redo);
                 self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
             }
             Message::NewGameRequested => {
@@ -192,6 +272,10 @@ impl GuiApp {
         }
 
         Task::none()
+    }
+
+    pub fn subscription(&self) -> iced::Subscription<Message> {
+        hotkeys::subscription()
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -228,6 +312,27 @@ impl GuiApp {
         let board_container = container(board_canvas)
             .width(Length::Fill)
             .height(Length::Fill);
+
+        // Game tree panel
+        let game_root = self.editor.tree.roots
+            .get(self.active_game_index)
+            .copied()
+            .unwrap_or(0);
+        let tree_program = TreePanelProgram {
+            tree: &self.editor.tree,
+            root: game_root,
+            cursor: self.editor.cursor,
+        };
+        let tree_panel = container(
+            Canvas::new(tree_program)
+                .width(Length::Fixed(200.0))
+                .height(Length::Fill),
+        )
+        .height(Length::Fill);
+
+        let main_row = row![board_container, tree_panel]
+            .height(Length::Fill)
+            .spacing(4);
 
         // Nav row
         let nav_info = format!("Move {move_num} · {player_name} to play");
@@ -280,16 +385,60 @@ impl GuiApp {
             text("").into()
         };
 
-        column![
+        let normal_content: Element<'_, Message> = column![
             toolbar,
-            board_container,
+            main_row,
             nav_row,
             capture_row,
             maybe_status,
         ]
         .spacing(6)
         .padding(8)
-        .into()
+        .into();
+
+        if self.confirm_delete {
+            let backdrop = container(text(""))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_: &iced::Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgba(
+                        0.0, 0.0, 0.0, 0.45,
+                    ))),
+                    ..Default::default()
+                });
+
+            let dialog = container(
+                column![
+                    text("Delete this node and all its descendants?").size(15),
+                    row![
+                        button("Delete").on_press(Message::DeleteNodeConfirmed),
+                        button("Cancel").on_press(Message::DeleteNodeCancelled),
+                    ]
+                    .spacing(8),
+                ]
+                .spacing(12)
+                .padding(16),
+            )
+            .style(|_: &iced::Theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(Color::WHITE)),
+                border: iced::Border {
+                    color: Color::from_rgb(0.5, 0.5, 0.5),
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            });
+
+            let overlay = container(dialog)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Center)
+                .align_y(iced::alignment::Vertical::Center);
+
+            iced::widget::stack([normal_content, backdrop.into(), overlay.into()]).into()
+        } else {
+            normal_content
+        }
     }
 }
 

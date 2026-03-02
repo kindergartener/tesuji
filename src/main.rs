@@ -5,5 +5,6 @@ fn main() -> iced::Result {
         tesuji::gui::GuiApp::view,
     )
     .title("Tesuji")
+    .subscription(tesuji::gui::GuiApp::subscription)
     .run()
 }

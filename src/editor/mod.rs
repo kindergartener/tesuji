@@ -6,6 +6,8 @@ use crate::sgf::{GameTree, NodeId, SGFProperty};
 pub struct Editor {
     pub tree: GameTree,
     pub cursor: NodeId,
+    undo_stack: Vec<(GameTree, NodeId)>,
+    redo_stack: Vec<(GameTree, NodeId)>,
 }
 
 pub enum EditCommand {
@@ -17,8 +19,12 @@ pub enum EditCommand {
     NavigateNext,
     NavigatePrev,
     NavigateBranch(usize),
+    NavigateFirst,
+    NavigateLast,
     /// Replace the entire tree (e.g. after loading a new file).
     Load(GameTree),
+    Undo,
+    Redo,
 }
 
 fn property_key(p: &SGFProperty) -> &str {
@@ -45,10 +51,23 @@ fn property_key(p: &SGFProperty) -> &str {
 impl Editor {
     pub fn new(tree: GameTree) -> Self {
         let cursor = tree.roots.first().copied().unwrap_or(0);
-        Self { tree, cursor }
+        Self { tree, cursor, undo_stack: Vec::new(), redo_stack: Vec::new() }
     }
 
     pub fn apply(&mut self, cmd: EditCommand) {
+        let is_mutating = matches!(
+            cmd,
+            EditCommand::AddMove(_)
+                | EditCommand::SetProperty(_)
+                | EditCommand::RemoveProperty(_)
+                | EditCommand::DeleteCurrentNode
+                | EditCommand::AppendVariation
+        );
+        if is_mutating {
+            self.undo_stack.push((self.tree.clone(), self.cursor));
+            self.redo_stack.clear();
+        }
+
         match cmd {
             EditCommand::AddMove(prop) => {
                 let id = self.tree.add_node(self.cursor, vec![prop]);
@@ -95,10 +114,36 @@ impl Editor {
                     self.cursor = c;
                 }
             }
+            EditCommand::NavigateFirst => {
+                while let Some(p) = self.tree.node(self.cursor).parent {
+                    self.cursor = p;
+                }
+            }
+            EditCommand::NavigateLast => {
+                while let Some(&c) = self.tree.node(self.cursor).children.first() {
+                    self.cursor = c;
+                }
+            }
             EditCommand::Load(new_tree) => {
                 let cursor = new_tree.roots.first().copied().unwrap_or(0);
                 self.tree = new_tree;
                 self.cursor = cursor;
+                self.undo_stack.clear();
+                self.redo_stack.clear();
+            }
+            EditCommand::Undo => {
+                if let Some((tree, cursor)) = self.undo_stack.pop() {
+                    let prev = (std::mem::replace(&mut self.tree, tree), self.cursor);
+                    self.redo_stack.push(prev);
+                    self.cursor = cursor;
+                }
+            }
+            EditCommand::Redo => {
+                if let Some((tree, cursor)) = self.redo_stack.pop() {
+                    let prev = (std::mem::replace(&mut self.tree, tree), self.cursor);
+                    self.undo_stack.push(prev);
+                    self.cursor = cursor;
+                }
             }
         }
     }

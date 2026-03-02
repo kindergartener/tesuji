@@ -2,12 +2,14 @@ use crate::sgf::node::SGFProperty;
 
 pub type NodeId = usize;
 
+#[derive(Clone)]
 pub struct TreeNode {
     pub properties: Vec<SGFProperty>,
     pub parent: Option<NodeId>,
     pub children: Vec<NodeId>,
 }
 
+#[derive(Clone)]
 pub struct GameTree {
     /// Arena storage — private to external users; pub(crate) for the parser.
     pub(crate) nodes: Vec<TreeNode>,
