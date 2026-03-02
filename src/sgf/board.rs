@@ -86,18 +86,26 @@ impl Board {
             for prop in &node.properties {
                 match prop {
                     SGFProperty::B(coord) => {
-                        let row = coord.second() as usize - b'a' as usize;
-                        let col = coord.first() as usize - b'a' as usize;
-                        board.cells[row][col] = Cell::Black;
+                        if !coord.is_pass() {
+                            let row = coord.second() as usize - b'a' as usize;
+                            let col = coord.first() as usize - b'a' as usize;
+                            board.cells[row][col] = Cell::Black;
+                            board.ko_point = board.apply_captures(row, col, Cell::Black);
+                        } else {
+                            board.ko_point = None;
+                        }
                         board.move_number += 1;
-                        board.ko_point = board.apply_captures(row, col, Cell::Black);
                     }
                     SGFProperty::W(coord) => {
-                        let row = coord.second() as usize - b'a' as usize;
-                        let col = coord.first() as usize - b'a' as usize;
-                        board.cells[row][col] = Cell::White;
+                        if !coord.is_pass() {
+                            let row = coord.second() as usize - b'a' as usize;
+                            let col = coord.first() as usize - b'a' as usize;
+                            board.cells[row][col] = Cell::White;
+                            board.ko_point = board.apply_captures(row, col, Cell::White);
+                        } else {
+                            board.ko_point = None;
+                        }
                         board.move_number += 1;
-                        board.ko_point = board.apply_captures(row, col, Cell::White);
                     }
                     // Do not increment move counter for setup stones
                     // and clear ko point

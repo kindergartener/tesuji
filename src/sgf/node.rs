@@ -109,6 +109,21 @@ impl GoCoord {
         Ok(Self(a | (b << 5)))
     }
 
+    /// Construct a GoCoord from (col, row) 0-based indices.
+    /// `col` maps to the first SGF character, `row` to the second.
+    pub fn from_colrow(col: usize, row: usize) -> Self {
+        Self(col as u16 | ((row as u16) << 5))
+    }
+
+    /// The conventional SGF pass coordinate `tt` (index 19 in each axis).
+    pub fn pass() -> Self {
+        Self(19 | (19 << 5))
+    }
+
+    pub fn is_pass(self) -> bool {
+        (self.0 & 0b11111) == 19
+    }
+
     pub fn first(self) -> char {
         (b'a' + (self.0 & 0b11111) as u8) as char
     }
