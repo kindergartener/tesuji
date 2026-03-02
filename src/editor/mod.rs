@@ -57,14 +57,18 @@ impl Editor {
             EditCommand::SetProperty(prop) => {
                 let key = property_key(&prop).to_string();
                 let node = self.tree.node_mut(self.cursor);
-                if let Some(existing) = node.properties.iter_mut().find(|p| property_key(p) == key) {
+                if let Some(existing) = node.properties.iter_mut().find(|p| property_key(p) == key)
+                {
                     *existing = prop;
                 } else {
                     node.properties.push(prop);
                 }
             }
             EditCommand::RemoveProperty(key) => {
-                self.tree.node_mut(self.cursor).properties.retain(|p| property_key(p) != key);
+                self.tree
+                    .node_mut(self.cursor)
+                    .properties
+                    .retain(|p| property_key(p) != key);
             }
             EditCommand::DeleteCurrentNode => {
                 let old_cursor = self.cursor;
@@ -103,8 +107,8 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sgf::{GameTree, parse_sgf};
     use crate::sgf::node::GoCoord;
+    use crate::sgf::{GameTree, parse_sgf};
 
     fn simple_tree() -> Editor {
         let tree = parse_sgf("(;GM[1]FF[4]SZ[19];B[dd];W[pd])").unwrap();
@@ -178,7 +182,10 @@ mod tests {
         let mut ed = simple_tree();
         let root_children_before = ed.tree.node(ed.cursor).children.len();
         ed.apply(EditCommand::AppendVariation);
-        assert_eq!(ed.tree.node(ed.cursor).children.len(), root_children_before + 1);
+        assert_eq!(
+            ed.tree.node(ed.cursor).children.len(),
+            root_children_before + 1
+        );
     }
 
     #[test]
@@ -229,7 +236,7 @@ pub trait Adapter {
     fn next_command(&mut self) -> anyhow::Result<Option<EditCommand>>;
 }
 
-/// TEA event loop: render → input → update → repeat.
+/// TEA event loop: render -> input -> update → repeat.
 pub fn run_editor(mut editor: Editor, adapter: &mut impl Adapter) -> anyhow::Result<()> {
     loop {
         adapter.render(&editor)?;
