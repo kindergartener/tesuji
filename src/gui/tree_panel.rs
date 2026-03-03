@@ -20,51 +20,89 @@ pub struct TreePanelProgram<'a> {
 pub struct TreePanelState {
     pub scroll_y: f32,
     pub scroll_x: f32,
+    /// Cached layout computed once per draw, reused in update/mouse_interaction.
+    pub cached: Option<TreeLayout>,
 }
 
-fn subtree_width(tree: &GameTree, id: NodeId) -> usize {
-    let children = &tree.node(id).children;
-    if children.is_empty() {
-        1
-    } else {
-        children.iter().map(|&c| subtree_width(tree, c)).sum()
+pub struct TreeLayout {
+    pub positions: HashMap<NodeId, (usize, usize)>,
+    pub max_col: usize,
+    pub max_row: usize,
+    pub move_numbers: HashMap<NodeId, usize>,
+}
+
+/// Compute subtree widths, positions, and move numbers in a single
+/// iterative (non-recursive) pass. O(n) time and space.
+fn compute_layout(tree: &GameTree, root: NodeId) -> TreeLayout {
+    // --- Pass 1: compute subtree widths bottom-up (iterative post-order) ---
+    let mut widths: HashMap<NodeId, usize> = HashMap::new();
+    let mut stack: Vec<(NodeId, bool)> = vec![(root, false)];
+
+    while let Some((id, processed)) = stack.pop() {
+        if processed {
+            let children = &tree.node(id).children;
+            if children.is_empty() {
+                widths.insert(id, 1);
+            } else {
+                let w: usize = children.iter().map(|&c| widths[&c]).sum();
+                widths.insert(id, w);
+            }
+        } else {
+            stack.push((id, true));
+            for &child in tree.node(id).children.iter().rev() {
+                stack.push((child, false));
+            }
+        }
     }
-}
 
-fn assign_layout(
-    tree: &GameTree,
-    id: NodeId,
-    depth: usize,
-    col_start: usize,
-    layout: &mut HashMap<NodeId, (usize, usize)>,
-) {
-    layout.insert(id, (col_start, depth));
-    let mut next_col = col_start;
-    for &child in &tree.node(id).children {
-        assign_layout(tree, child, depth + 1, next_col, layout);
-        next_col += subtree_width(tree, child);
+    // --- Pass 2: assign (col, row) positions top-down (iterative pre-order) ---
+    let mut positions: HashMap<NodeId, (usize, usize)> = HashMap::new();
+    let mut max_col: usize = 0;
+    let mut max_row: usize = 0;
+
+    // (id, col_start, depth)
+    let mut pos_stack: Vec<(NodeId, usize, usize)> = vec![(root, 0, 0)];
+
+    while let Some((id, col_start, depth)) = pos_stack.pop() {
+        positions.insert(id, (col_start, depth));
+        if col_start > max_col {
+            max_col = col_start;
+        }
+        if depth > max_row {
+            max_row = depth;
+        }
+
+        // Collect child assignments in forward order, then push reversed onto stack
+        let children = &tree.node(id).children;
+        let mut child_assignments: Vec<(NodeId, usize, usize)> = Vec::new();
+        let mut next_col = col_start;
+        for &child in children {
+            child_assignments.push((child, next_col, depth + 1));
+            next_col += widths[&child];
+        }
+        for assignment in child_assignments.into_iter().rev() {
+            pos_stack.push(assignment);
+        }
     }
-}
 
-fn compute_move_numbers(tree: &GameTree, root: NodeId) -> HashMap<NodeId, usize> {
-    fn walk(
-        tree: &GameTree,
-        id: NodeId,
-        parent_moves: usize,
-        out: &mut HashMap<NodeId, usize>,
-    ) {
+    // --- Pass 3: compute move numbers (iterative pre-order) ---
+    let mut move_numbers: HashMap<NodeId, usize> = HashMap::new();
+    // (id, parent_move_count)
+    let mut mn_stack: Vec<(NodeId, usize)> = vec![(root, 0)];
+
+    while let Some((id, parent_moves)) = mn_stack.pop() {
         let is_move = tree.node(id).properties.iter().any(|p| {
             matches!(p, SGFProperty::B(_) | SGFProperty::W(_))
         });
-        out.insert(id, if is_move { parent_moves + 1 } else { 0 });
+        let this_moves = if is_move { parent_moves + 1 } else { 0 };
+        move_numbers.insert(id, this_moves);
         let next = if is_move { parent_moves + 1 } else { parent_moves };
-        for &child in &tree.node(id).children {
-            walk(tree, child, next, out);
+        for &child in tree.node(id).children.iter().rev() {
+            mn_stack.push((child, next));
         }
     }
-    let mut out = HashMap::new();
-    walk(tree, root, 0, &mut out);
-    out
+
+    TreeLayout { positions, max_col, max_row, move_numbers }
 }
 
 fn x_translation(max_col: usize, scroll_x: f32, panel_width: f32) -> f32 {
@@ -94,20 +132,20 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
                         mouse::ScrollDelta::Pixels { x, y } => (*x, *y),
                     };
 
-                    let mut layout = HashMap::new();
-                    assign_layout(self.tree, self.root, 0, 0, &mut layout);
+                    // Use cached layout from last draw, or compute fresh
+                    let layout = state.cached.get_or_insert_with(|| {
+                        compute_layout(self.tree, self.root)
+                    });
 
                     // vertical scroll
-                    let max_row = layout.values().map(|&(_, r)| r).max().unwrap_or(0);
                     let max_scroll_y = (PANEL_MARGIN * 2.0
-                        + max_row as f32 * NODE_PITCH
+                        + layout.max_row as f32 * NODE_PITCH
                         - bounds.height)
                         .max(0.0);
                     state.scroll_y = (state.scroll_y - delta_y).clamp(0.0, max_scroll_y);
 
                     // horizontal scroll
-                    let max_col = layout.values().map(|&(c, _)| c).max().unwrap_or(0);
-                    let total_width = PANEL_MARGIN * 2.0 + max_col as f32 * NODE_PITCH;
+                    let total_width = PANEL_MARGIN * 2.0 + layout.max_col as f32 * NODE_PITCH;
                     if total_width > bounds.width {
                         let max_scroll_x = total_width - bounds.width;
                         state.scroll_x = (state.scroll_x - delta_x).clamp(0.0, max_scroll_x);
@@ -122,13 +160,14 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(pos) = cursor.position_in(bounds) {
-                    let mut layout = HashMap::new();
-                    assign_layout(self.tree, self.root, 0, 0, &mut layout);
-                    let max_col = layout.values().map(|&(c, _)| c).max().unwrap_or(0);
-                    let xt = x_translation(max_col, state.scroll_x, bounds.width);
+                    // Use cached layout from last draw, or compute fresh
+                    let layout = state.cached.get_or_insert_with(|| {
+                        compute_layout(self.tree, self.root)
+                    });
+                    let xt = x_translation(layout.max_col, state.scroll_x, bounds.width);
                     let content_x = pos.x - xt;
                     let content_y = pos.y + state.scroll_y;
-                    for (&id, &(col, row)) in &layout {
+                    for (&id, &(col, row)) in &layout.positions {
                         let cx = PANEL_MARGIN + col as f32 * NODE_PITCH;
                         let cy = PANEL_MARGIN + row as f32 * NODE_PITCH;
                         let dx = content_x - cx;
@@ -163,11 +202,9 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
             Color::from_rgb(0.93, 0.93, 0.93),
         );
 
-        let mut layout = HashMap::new();
-        assign_layout(self.tree, self.root, 0, 0, &mut layout);
+        let layout = compute_layout(self.tree, self.root);
 
-        let max_col = layout.values().map(|&(c, _)| c).max().unwrap_or(0);
-        let xt = x_translation(max_col, state.scroll_x, bounds.width);
+        let xt = x_translation(layout.max_col, state.scroll_x, bounds.width);
         frame.translate(Vector::new(xt, -state.scroll_y));
 
         let edge_stroke = Stroke::default()
@@ -175,11 +212,11 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
             .with_width(1.5);
 
         // Draw edges (RELU-style)
-        for (&id, &(col, row)) in &layout {
+        for (&id, &(col, row)) in &layout.positions {
             let px = PANEL_MARGIN + col as f32 * NODE_PITCH;
             let py = PANEL_MARGIN + row as f32 * NODE_PITCH;
             for &child_id in &self.tree.node(id).children {
-                if let Some(&(child_col, _child_row)) = layout.get(&child_id) {
+                if let Some(&(child_col, _child_row)) = layout.positions.get(&child_id) {
                     let cx = PANEL_MARGIN + child_col as f32 * NODE_PITCH;
                     let cy = py + NODE_PITCH; // child is always one row below
                     if child_col == col {
@@ -204,8 +241,6 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
             }
         }
 
-        let move_nums = compute_move_numbers(self.tree, self.root);
-
         let cursor_stroke = Stroke::default()
             .with_color(theme::TREE_CURSOR_RING)
             .with_width(2.5);
@@ -214,7 +249,7 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
             .with_width(1.0);
 
         // Draw nodes
-        for (&id, &(col, row)) in &layout {
+        for (&id, &(col, row)) in &layout.positions {
             let cx = PANEL_MARGIN + col as f32 * NODE_PITCH;
             let cy = PANEL_MARGIN + row as f32 * NODE_PITCH;
             let center = Point::new(cx, cy);
@@ -258,7 +293,7 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
                         let label = if coord.is_pass() {
                             "-".to_string()
                         } else {
-                            move_nums[&id].to_string()
+                            layout.move_numbers[&id].to_string()
                         };
                         let label_color = if is_black {
                             Color::WHITE
@@ -300,13 +335,19 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
         if let Some(pos) = cursor.position_in(bounds) {
-            let mut layout = HashMap::new();
-            assign_layout(self.tree, self.root, 0, 0, &mut layout);
-            let max_col = layout.values().map(|&(c, _)| c).max().unwrap_or(0);
-            let xt = x_translation(max_col, state.scroll_x, bounds.width);
+            // Use cached layout if available
+            let layout;
+            let layout_ref = match &state.cached {
+                Some(cached) => cached,
+                None => {
+                    layout = compute_layout(self.tree, self.root);
+                    &layout
+                }
+            };
+            let xt = x_translation(layout_ref.max_col, state.scroll_x, bounds.width);
             let content_x = pos.x - xt;
             let content_y = pos.y + state.scroll_y;
-            for &(col, row) in layout.values() {
+            for &(col, row) in layout_ref.positions.values() {
                 let cx = PANEL_MARGIN + col as f32 * NODE_PITCH;
                 let cy = PANEL_MARGIN + row as f32 * NODE_PITCH;
                 let dx = content_x - cx;

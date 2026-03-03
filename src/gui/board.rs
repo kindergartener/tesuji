@@ -129,15 +129,15 @@ impl<'a> canvas::Program<Message> for BoardProgram<'a> {
         frame.fill_rectangle(Point::ORIGIN, bounds.size(), theme::BOARD_WOOD);
 
         // 2. Grid lines
-        let grid_stroke = Stroke::default().with_color(theme::GRID_LINE).with_width(1.0);
+        let grid_stroke = || Stroke::default().with_color(theme::GRID_LINE).with_width(1.0);
         for i in 0..size {
             let start = metrics.coord_to_pixel(0, i);
             let end = metrics.coord_to_pixel(size - 1, i);
-            frame.stroke(&Path::line(start, end), grid_stroke.clone());
+            frame.stroke(&Path::line(start, end), grid_stroke());
 
             let start = metrics.coord_to_pixel(i, 0);
             let end = metrics.coord_to_pixel(i, size - 1);
-            frame.stroke(&Path::line(start, end), grid_stroke.clone());
+            frame.stroke(&Path::line(start, end), grid_stroke());
         }
 
         // 3. Star points

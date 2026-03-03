@@ -16,9 +16,21 @@ pub fn open_file_task() -> Task<Message> {
                 None => None,
                 Some(h) => {
                     let path = h.path().to_path_buf();
-                    match tokio::fs::read_to_string(&path).await {
-                        Ok(text) => Some(Ok((path, text))),
+                    // Check file size before reading to prevent OOM on huge files
+                    const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+                    match tokio::fs::metadata(&path).await {
+                        Ok(meta) if meta.len() > MAX_FILE_SIZE => {
+                            Some(Err(format!(
+                                "File too large ({:.1} MB, max {} MB)",
+                                meta.len() as f64 / (1024.0 * 1024.0),
+                                MAX_FILE_SIZE / (1024 * 1024),
+                            )))
+                        }
                         Err(e) => Some(Err(e.to_string())),
+                        Ok(_) => match tokio::fs::read_to_string(&path).await {
+                            Ok(text) => Some(Ok((path, text))),
+                            Err(e) => Some(Err(e.to_string())),
+                        },
                     }
                 }
             }

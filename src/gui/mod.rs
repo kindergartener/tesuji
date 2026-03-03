@@ -18,7 +18,11 @@ use crate::{
         tree_panel::TreePanelProgram,
     },
     parse_sgf,
-    sgf::{Board, Cell, GameTree, NodeId, SGFProperty, node::GoCoord},
+    sgf::{
+        Board, Cell, GameTree, NodeId, SGFProperty,
+        count_liberties, find_group, orthogonal_neighbors,
+        node::GoCoord,
+    },
     write_sgf,
 };
 
@@ -26,6 +30,10 @@ pub struct GuiApp {
     pub editor: Editor,
     pub file_path: Option<PathBuf>,
     pub cached_board: Board,
+    /// Board history for incremental back-navigation.
+    /// Each entry is the board state *before* applying the node at the
+    /// corresponding depth along the root→cursor path.
+    pub board_history: Vec<Board>,
     pub active_game_index: usize,
     pub status_message: Option<StatusMessage>,
     pub hover_coord: Option<(usize, usize)>,
@@ -101,6 +109,7 @@ impl GuiApp {
                 editor,
                 file_path: None,
                 cached_board,
+                board_history: Vec::new(),
                 active_game_index: 0,
                 status_message: None,
                 hover_coord: None,
@@ -110,6 +119,13 @@ impl GuiApp {
         )
     }
 
+    /// Recompute the board from scratch and rebuild the history stack.
+    fn recompute_board(&mut self) {
+        let (board, history) = board_with_history(&self.editor.tree, self.editor.cursor);
+        self.cached_board = board;
+        self.board_history = history;
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::OpenFileRequested => {
@@ -117,8 +133,8 @@ impl GuiApp {
             }
             Message::SaveFileRequested => {
                 let content = write_sgf(&self.editor.tree);
-                if let Some(path) = self.file_path.clone() {
-                    return io::save_file_task(path, content);
+                if let Some(ref path) = self.file_path {
+                    return io::save_file_task(path.clone(), content);
                 } else {
                     return io::save_as_file_task(content);
                 }
@@ -132,7 +148,7 @@ impl GuiApp {
                     let n_games = tree.roots.len();
                     self.editor.apply(EditCommand::Load(tree));
                     self.file_path = Some(path);
-                    self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                    self.recompute_board();
                     if n_games > 1 {
                         self.status_message = Some(StatusMessage::warning(format!(
                             "File contains {n_games} games — showing game 1"
@@ -157,7 +173,7 @@ impl GuiApp {
                 self.status_message = Some(StatusMessage::error(format!("Save failed: {e}")));
             }
             Message::BoardClicked { col, row } => {
-                // Check if clicking on the last-move marker → trigger delete confirmation
+                // Check if clicking on the last-move marker -> trigger delete confirmation
                 if let Some((last_col, last_row)) = last_move_coord(&self.editor)
                     && col == last_col && row == last_row
                 {
@@ -166,9 +182,9 @@ impl GuiApp {
                 }
 
                 match try_place_stone(self, col, row) {
-                    Ok(EditCommand::AddMove(ref prop)) => {
+                    Ok(prop) => {
                         // Check for existing child with the same move (auto-variation)
-                        let move_coord = match prop {
+                        let move_coord = match &prop {
                             SGFProperty::B(c) | SGFProperty::W(c) => *c,
                             _ => unreachable!(),
                         };
@@ -186,14 +202,18 @@ impl GuiApp {
                             })
                             .copied();
                         if let Some(child_id) = existing {
+                            // Navigate to existing variation: push board, apply child node
+                            self.board_history.push(self.cached_board.clone());
                             self.editor.cursor = child_id;
+                            self.cached_board.apply_node(self.editor.tree.node(child_id));
                         } else {
-                            self.editor.apply(EditCommand::AddMove(prop.clone()));
+                            // New move: push board, apply command (which advances cursor)
+                            self.board_history.push(self.cached_board.clone());
+                            self.editor.apply(EditCommand::AddMove(prop));
+                            self.cached_board
+                                .apply_node(self.editor.tree.node(self.editor.cursor));
                         }
-                        self.cached_board =
-                            Board::from_tree(&self.editor.tree, self.editor.cursor);
                     }
-                    Ok(_) => unreachable!(),
                     Err(msg) => {
                         self.status_message = Some(StatusMessage::error(msg));
                     }
@@ -209,61 +229,82 @@ impl GuiApp {
                     Cell::White => SGFProperty::W(GoCoord::pass()),
                     Cell::Empty => unreachable!(),
                 };
+                self.board_history.push(self.cached_board.clone());
                 self.editor.apply(EditCommand::AddMove(prop));
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                self.cached_board
+                    .apply_node(self.editor.tree.node(self.editor.cursor));
             }
             Message::DeleteNodeConfirmed => {
                 self.confirm_delete = false;
                 self.editor.apply(EditCommand::DeleteCurrentNode);
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                self.recompute_board();
             }
             Message::DeleteNodeCancelled => {
                 self.confirm_delete = false;
             }
             Message::NavigateNext => {
+                let old_cursor = self.editor.cursor;
                 self.editor.apply(EditCommand::NavigateNext);
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                if self.editor.cursor != old_cursor {
+                    // Incremental forward: push current board, apply next node
+                    self.board_history.push(self.cached_board.clone());
+                    self.cached_board
+                        .apply_node(self.editor.tree.node(self.editor.cursor));
+                }
             }
             Message::NavigatePrev => {
+                let old_cursor = self.editor.cursor;
                 self.editor.apply(EditCommand::NavigatePrev);
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                if self.editor.cursor != old_cursor {
+                    // Incremental backward: pop from history
+                    if let Some(prev_board) = self.board_history.pop() {
+                        self.cached_board = prev_board;
+                    } else {
+                        self.recompute_board();
+                    }
+                }
             }
             Message::NavigateFirst => {
                 self.editor.apply(EditCommand::NavigateFirst);
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                self.recompute_board();
             }
             Message::NavigateLast => {
                 self.editor.apply(EditCommand::NavigateLast);
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                self.recompute_board();
             }
             Message::NavigateBranch(n) => {
+                let old_cursor = self.editor.cursor;
                 self.editor.apply(EditCommand::NavigateBranch(n));
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                if self.editor.cursor != old_cursor {
+                    self.board_history.push(self.cached_board.clone());
+                    self.cached_board
+                        .apply_node(self.editor.tree.node(self.editor.cursor));
+                }
             }
             Message::NavigateToNode(id) => {
-                self.editor.cursor = id;
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                self.editor.apply(EditCommand::NavigateToNode(id));
+                self.recompute_board();
             }
             Message::UndoRequested => {
                 self.editor.apply(EditCommand::Undo);
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                self.recompute_board();
             }
             Message::RedoRequested => {
                 self.editor.apply(EditCommand::Redo);
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                self.recompute_board();
             }
             Message::NewGameRequested => {
                 let tree = new_game_tree();
                 self.editor.apply(EditCommand::Load(tree));
                 self.file_path = None;
-                self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                self.recompute_board();
                 self.status_message = None;
             }
             Message::SelectGame(n) => {
                 if let Some(&root) = self.editor.tree.roots.get(n) {
                     self.active_game_index = n;
-                    self.editor.cursor = root;
-                    self.cached_board = Board::from_tree(&self.editor.tree, self.editor.cursor);
+                    self.editor.apply(EditCommand::NavigateToNode(root));
+                    self.recompute_board();
                 }
             }
             Message::DismissStatus => {
@@ -471,7 +512,33 @@ fn last_move_coord(editor: &Editor) -> Option<(usize, usize)> {
     None
 }
 
-fn try_place_stone(app: &GuiApp, col: usize, row: usize) -> Result<EditCommand, String> {
+/// Build a board snapshot *and* a history stack for every position along
+/// the root→cursor path. The history allows O(1) backward navigation.
+fn board_with_history(tree: &GameTree, cursor: NodeId) -> (Board, Vec<Board>) {
+    let mut path: Vec<NodeId> = Vec::new();
+    let mut current = cursor;
+    loop {
+        path.push(current);
+        match tree.node(current).parent {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    path.reverse();
+
+    let mut board = Board::from_tree(tree, path[0]); // root node
+    let mut history: Vec<Board> = Vec::with_capacity(path.len().saturating_sub(1));
+
+    for &id in &path[1..] {
+        history.push(board.clone());
+        board.apply_node(tree.node(id));
+    }
+
+    (board, history)
+}
+
+/// Returns the SGFProperty for placing a stone at (col, row), or an error.
+fn try_place_stone(app: &GuiApp, col: usize, row: usize) -> Result<SGFProperty, String> {
     let board = &app.cached_board;
     let size = board.size;
 
@@ -498,31 +565,38 @@ fn try_place_stone(app: &GuiApp, col: usize, row: usize) -> Result<EditCommand, 
         Cell::White => SGFProperty::W(coord),
         Cell::Empty => unreachable!(),
     };
-    Ok(EditCommand::AddMove(prop))
+    Ok(prop)
 }
 
 /// Simulate placing `color` at `(col, row)` and check if it would be a suicide.
 /// Returns true if the group formed would have zero liberties after captures.
 fn would_be_suicide(board: &Board, col: usize, row: usize, color: Cell) -> bool {
-    // Clone the board state for simulation
     let mut sim_cells = board.cells;
     let size = board.size;
 
     sim_cells[row][col] = color;
 
-    // Apply opponent captures (same logic as apply_captures)
     let opponent = match color {
         Cell::Black => Cell::White,
         Cell::White => Cell::Black,
         Cell::Empty => return false,
     };
 
-    for &(nr, nc) in &orthogonal_neighbors(row, col, size) {
-        if sim_cells[nr][nc] != opponent {
+    // Track which opponent cells have already been checked to avoid
+    // re-walking the same group when multiple neighbors belong to it.
+    let mut checked = [[false; 19]; 19];
+
+    let nbrs = orthogonal_neighbors(row, col, size);
+    for &(nr, nc) in nbrs.as_slice() {
+        if sim_cells[nr][nc] != opponent || checked[nr][nc] {
             continue;
         }
-        let group = find_group_in(&sim_cells, nr, nc, size);
-        if count_liberties_in(&sim_cells, &group, size) == 0 {
+        let group = find_group(&sim_cells, nr, nc, size);
+        // Mark all group members as checked
+        for &(gr, gc) in &group {
+            checked[gr][gc] = true;
+        }
+        if count_liberties(&sim_cells, &group, size) == 0 {
             for (gr, gc) in group {
                 sim_cells[gr][gc] = Cell::Empty;
             }
@@ -530,47 +604,6 @@ fn would_be_suicide(board: &Board, col: usize, row: usize, color: Cell) -> bool 
     }
 
     // After captures, check if the placed group has any liberties
-    let placed_group = find_group_in(&sim_cells, row, col, size);
-    count_liberties_in(&sim_cells, &placed_group, size) == 0
-}
-
-fn orthogonal_neighbors(row: usize, col: usize, size: usize) -> Vec<(usize, usize)> {
-    let mut n = Vec::with_capacity(4);
-    if row > 0 { n.push((row - 1, col)); }
-    if row + 1 < size { n.push((row + 1, col)); }
-    if col > 0 { n.push((row, col - 1)); }
-    if col + 1 < size { n.push((row, col + 1)); }
-    n
-}
-
-fn find_group_in(cells: &[[Cell; 19]; 19], row: usize, col: usize, size: usize) -> Vec<(usize, usize)> {
-    let color = cells[row][col];
-    let mut visited = [[false; 19]; 19];
-    let mut stack = vec![(row, col)];
-    let mut group = Vec::new();
-    while let Some((r, c)) = stack.pop() {
-        if visited[r][c] { continue; }
-        visited[r][c] = true;
-        if cells[r][c] != color { continue; }
-        group.push((r, c));
-        for (nr, nc) in orthogonal_neighbors(r, c, size) {
-            if !visited[nr][nc] && cells[nr][nc] == color {
-                stack.push((nr, nc));
-            }
-        }
-    }
-    group
-}
-
-fn count_liberties_in(cells: &[[Cell; 19]; 19], group: &[(usize, usize)], size: usize) -> usize {
-    use std::collections::HashSet;
-    let mut liberties = HashSet::new();
-    for &(r, c) in group {
-        for (nr, nc) in orthogonal_neighbors(r, c, size) {
-            if cells[nr][nc] == Cell::Empty {
-                liberties.insert((nr, nc));
-            }
-        }
-    }
-    liberties.len()
+    let placed_group = find_group(&sim_cells, row, col, size);
+    count_liberties(&sim_cells, &placed_group, size) == 0
 }

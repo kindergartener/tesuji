@@ -21,6 +21,7 @@ pub enum EditCommand {
     NavigateBranch(usize),
     NavigateFirst,
     NavigateLast,
+    NavigateToNode(NodeId),
     /// Replace the entire tree (e.g. after loading a new file).
     Load(GameTree),
     Undo,
@@ -123,6 +124,9 @@ impl Editor {
                 while let Some(&c) = self.tree.node(self.cursor).children.first() {
                     self.cursor = c;
                 }
+            }
+            EditCommand::NavigateToNode(id) => {
+                self.cursor = id;
             }
             EditCommand::Load(new_tree) => {
                 let cursor = new_tree.roots.first().copied().unwrap_or(0);

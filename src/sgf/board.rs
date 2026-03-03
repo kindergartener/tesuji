@@ -1,8 +1,6 @@
-use std::collections::HashSet;
-
 use crate::sgf::{
     node::SGFProperty,
-    tree::{GameTree, NodeId},
+    tree::{GameTree, NodeId, TreeNode},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +17,18 @@ impl Cell {
             Cell::Black => Cell::White,
             Cell::White => Cell::Black,
         }
+    }
+}
+
+/// Stack-allocated container for up to 4 orthogonal neighbors.
+pub struct Neighbors {
+    data: [(usize, usize); 4],
+    len: usize,
+}
+
+impl Neighbors {
+    pub fn as_slice(&self) -> &[(usize, usize)] {
+        &self.data[..self.len]
     }
 }
 
@@ -52,6 +62,19 @@ pub struct Board {
     pub ko_point: Option<(usize, usize)>,
 }
 
+impl Clone for Board {
+    fn clone(&self) -> Self {
+        Self {
+            cells: self.cells,
+            move_number: self.move_number,
+            size: self.size,
+            captured_white: self.captured_white,
+            captured_black: self.captured_black,
+            ko_point: self.ko_point,
+        }
+    }
+}
+
 impl Board {
     /// Build a board snapshot for the position at `cursor` in `tree`.
     ///
@@ -80,57 +103,61 @@ impl Board {
         }
         path.reverse();
 
-        // Apply each node move
+        // Apply each node's properties
         for id in path {
-            let node = tree.node(id);
-            for prop in &node.properties {
-                match prop {
-                    SGFProperty::B(coord) => {
-                        if !coord.is_pass() {
-                            let row = coord.second() as usize - b'a' as usize;
-                            let col = coord.first() as usize - b'a' as usize;
-                            board.cells[row][col] = Cell::Black;
-                            board.ko_point = board.apply_captures(row, col, Cell::Black);
-                        } else {
-                            board.ko_point = None;
-                        }
-                        board.move_number += 1;
-                    }
-                    SGFProperty::W(coord) => {
-                        if !coord.is_pass() {
-                            let row = coord.second() as usize - b'a' as usize;
-                            let col = coord.first() as usize - b'a' as usize;
-                            board.cells[row][col] = Cell::White;
-                            board.ko_point = board.apply_captures(row, col, Cell::White);
-                        } else {
-                            board.ko_point = None;
-                        }
-                        board.move_number += 1;
-                    }
-                    // Do not increment move counter for setup stones
-                    // and clear ko point
-                    SGFProperty::AB(coords) => {
-                        board.ko_point = None;
-                        for coord in coords {
-                            let row = coord.second() as usize - b'a' as usize;
-                            let col = coord.first() as usize - b'a' as usize;
-                            board.cells[row][col] = Cell::Black;
-                        }
-                    }
-                    SGFProperty::AW(coords) => {
-                        board.ko_point = None;
-                        for coord in coords {
-                            let row = coord.second() as usize - b'a' as usize;
-                            let col = coord.first() as usize - b'a' as usize;
-                            board.cells[row][col] = Cell::White;
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            board.apply_node(tree.node(id));
         }
 
         board
+    }
+
+    /// Apply a single tree node's properties to this board position.
+    pub fn apply_node(&mut self, node: &TreeNode) {
+        for prop in &node.properties {
+            match prop {
+                SGFProperty::B(coord) => {
+                    if !coord.is_pass() {
+                        let row = coord.second() as usize - b'a' as usize;
+                        let col = coord.first() as usize - b'a' as usize;
+                        self.cells[row][col] = Cell::Black;
+                        self.ko_point = self.apply_captures(row, col, Cell::Black);
+                    } else {
+                        self.ko_point = None;
+                    }
+                    self.move_number += 1;
+                }
+                SGFProperty::W(coord) => {
+                    if !coord.is_pass() {
+                        let row = coord.second() as usize - b'a' as usize;
+                        let col = coord.first() as usize - b'a' as usize;
+                        self.cells[row][col] = Cell::White;
+                        self.ko_point = self.apply_captures(row, col, Cell::White);
+                    } else {
+                        self.ko_point = None;
+                    }
+                    self.move_number += 1;
+                }
+                // Do not increment move counter for setup stones
+                // and clear ko point
+                SGFProperty::AB(coords) => {
+                    self.ko_point = None;
+                    for coord in coords {
+                        let row = coord.second() as usize - b'a' as usize;
+                        let col = coord.first() as usize - b'a' as usize;
+                        self.cells[row][col] = Cell::Black;
+                    }
+                }
+                SGFProperty::AW(coords) => {
+                    self.ko_point = None;
+                    for coord in coords {
+                        let row = coord.second() as usize - b'a' as usize;
+                        let col = coord.first() as usize - b'a' as usize;
+                        self.cells[row][col] = Cell::White;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Remove any opponent stones with zero liberties after placing a stone of
@@ -147,7 +174,8 @@ impl Board {
         let mut total_captured: usize = 0;
         let mut last_captured_at: (usize, usize) = (0, 0);
 
-        for (nr, nc) in orthogonal_neighbors(placed_row, placed_col, self.size) {
+        let nbrs = orthogonal_neighbors(placed_row, placed_col, self.size);
+        for &(nr, nc) in nbrs.as_slice() {
             if self.cells[nr][nc] != opponent {
                 continue;
             }
@@ -186,27 +214,34 @@ impl Board {
 }
 
 /// Returns valid orthogonally adjacent board positions to `(row, col)`
-/// respecting edge conditions
-fn orthogonal_neighbors(row: usize, col: usize, size: usize) -> Vec<(usize, usize)> {
-    let mut neighbors = Vec::with_capacity(4);
+/// respecting edge conditions.
+///
+/// Uses a stack-allocated `Neighbors` struct instead of heap-allocating a Vec.
+pub fn orthogonal_neighbors(row: usize, col: usize, size: usize) -> Neighbors {
+    let mut data = [(0, 0); 4];
+    let mut len = 0;
     if row > 0 {
-        neighbors.push((row - 1, col));
+        data[len] = (row - 1, col);
+        len += 1;
     }
     if row + 1 < size {
-        neighbors.push((row + 1, col));
+        data[len] = (row + 1, col);
+        len += 1;
     }
     if col > 0 {
-        neighbors.push((row, col - 1));
+        data[len] = (row, col - 1);
+        len += 1;
     }
     if col + 1 < size {
-        neighbors.push((row, col + 1));
+        data[len] = (row, col + 1);
+        len += 1;
     }
-    neighbors
+    Neighbors { data, len }
 }
 
 /// Collects all stones of the same color into a connected group by doing
 /// a DFS flood-fill from `(row, col)`.
-fn find_group(
+pub fn find_group(
     cells: &[[Cell; 19]; 19],
     row: usize,
     col: usize,
@@ -228,7 +263,8 @@ fn find_group(
         }
         group.push((r, c));
 
-        for (nr, nc) in orthogonal_neighbors(r, c, size) {
+        let nbrs = orthogonal_neighbors(r, c, size);
+        for &(nr, nc) in nbrs.as_slice() {
             if !visited[nr][nc] && cells[nr][nc] == color {
                 stack.push((nr, nc));
             }
@@ -238,17 +274,20 @@ fn find_group(
     group
 }
 
-/// Count a group's liberties
-fn count_liberties(cells: &[[Cell; 19]; 19], group: &[(usize, usize)], size: usize) -> usize {
-    let mut liberties = HashSet::new();
+/// Count a group's liberties using a flat bool array instead of a HashSet.
+pub fn count_liberties(cells: &[[Cell; 19]; 19], group: &[(usize, usize)], size: usize) -> usize {
+    let mut seen = [[false; 19]; 19];
+    let mut count = 0;
     for &(r, c) in group {
-        for (nr, nc) in orthogonal_neighbors(r, c, size) {
-            if cells[nr][nc] == Cell::Empty {
-                liberties.insert((nr, nc));
+        let nbrs = orthogonal_neighbors(r, c, size);
+        for &(nr, nc) in nbrs.as_slice() {
+            if cells[nr][nc] == Cell::Empty && !seen[nr][nc] {
+                seen[nr][nc] = true;
+                count += 1;
             }
         }
     }
-    liberties.len()
+    count
 }
 
 #[cfg(test)]
