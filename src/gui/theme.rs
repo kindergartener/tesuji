@@ -1,24 +1,31 @@
-use iced::Color;
+use iced::{Color, color};
 
 // Board
-pub const BOARD_WOOD: Color = Color::from_rgb(0.82, 0.66, 0.32);
-pub const GRID_LINE: Color = Color::from_rgb(0.15, 0.10, 0.05);
+pub const BOARD_WOOD: Color = color!(0xF3D07E);
+pub const BORDER_LINE: Color = color!(0x663918);
+pub const GRID_LINE: Color = color!(0x663918, 0.6);
 pub const STAR_POINT: Color = GRID_LINE;
 
 // Stones
-pub const STONE_BLACK: Color = Color::from_rgb(0.08, 0.08, 0.08);
-pub const STONE_WHITE: Color = Color::from_rgb(0.95, 0.95, 0.92);
-pub const STONE_SHADOW: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.25);
+pub const STONE_BLACK: Color = color!(0x0B0B0B);
+pub const STONE_WHITE: Color = color!(0xE5DDD0);
+pub const STONE_SHADOW: Color = color!(0x000000, 0.25);
+pub const BLACK_HIGHLIGHT: Color = color!(0xA7A39F, 0.50);
+pub const BLACK_SHADE: Color = color!(0x000000, 0.25);
+pub const BLACK_OUTLINE: Color = color!(0x1C1C1C, 0.5);
+pub const WHITE_HIGHLIGHT: Color = color!(0xFFFFFF, 0.33);
+pub const WHITE_SHADE: Color = color!(0xACA18B, 0.25);
+pub const WHITE_OUTLINE: Color = color!(0x7B6637, 0.25);
 
 // UI
-pub const LAST_MOVE_MARKER: Color = Color::from_rgb(0.85, 0.15, 0.15);
-pub const KO_MARKER: Color = Color::from_rgb(0.15, 0.45, 0.85);
+pub const LAST_MOVE_MARKER: Color = color!(0xF92A71);
+pub const KO_MARKER: Color = color!(0x61ADEE);
 pub const GHOST_ALPHA: f32 = 0.40;
 
 // Status bar
-pub const STATUS_INFO: Color = Color::from_rgb(0.2, 0.6, 0.2);
-pub const STATUS_WARNING: Color = Color::from_rgb(0.8, 0.6, 0.0);
-pub const STATUS_ERROR: Color = Color::from_rgb(0.8, 0.2, 0.2);
+pub const STATUS_INFO: Color = color!(0xE4Bf7A);
+pub const STATUS_WARNING: Color = color!(0xFF6B7F);
+pub const STATUS_ERROR: Color = color!(0x5C0900);
 
 // Tree panel
-pub const TREE_CURSOR_RING: Color = Color::from_rgb(0.15, 0.55, 0.95);
+pub const TREE_CURSOR_RING: Color = KO_MARKER;

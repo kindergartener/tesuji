@@ -84,6 +84,10 @@ pub enum Message {
     // Tree navigation
     NavigateNext,
     NavigatePrev,
+    NavigateNextVariation,
+    NavigatePrevVariation,
+    NavigateFirstVariation,
+    NavigateLastVariation,
     NavigateFirst,
     NavigateLast,
     NavigateBranch(usize),
@@ -263,6 +267,22 @@ impl GuiApp {
                         self.recompute_board();
                     }
                 }
+            }
+            Message::NavigateNextVariation => {
+                self.editor.apply(EditCommand::NavigateNextVariation);
+                self.recompute_board();
+            }
+            Message::NavigatePrevVariation => {
+                self.editor.apply(EditCommand::NavigatePrevVariation);
+                self.recompute_board();
+            }
+            Message::NavigateFirstVariation => {
+                self.editor.apply(EditCommand::NavigateFirstVariation);
+                self.recompute_board();
+            }
+            Message::NavigateLastVariation => {
+                self.editor.apply(EditCommand::NavigateLastVariation);
+                self.recompute_board();
             }
             Message::NavigateFirst => {
                 self.editor.apply(EditCommand::NavigateFirst);

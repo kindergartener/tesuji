@@ -18,9 +18,7 @@ pub struct TreePanelProgram<'a> {
 
 #[derive(Default)]
 pub struct TreePanelState {
-    pub scroll_y: f32,
-    pub scroll_x: f32,
-    /// Cached layout computed once per draw, reused in update/mouse_interaction.
+    /// Cached layout, reused in update/mouse_interaction.
     pub cached: Option<TreeLayout>,
 }
 
@@ -31,57 +29,106 @@ pub struct TreeLayout {
     pub move_numbers: HashMap<NodeId, usize>,
 }
 
-/// Compute subtree widths, positions, and move numbers in a single
-/// iterative (non-recursive) pass. O(n) time and space.
+/// Compute positions and move numbers using greedy interval packing.
+/// Variations reuse columns when their vertical extents don't overlap.
 fn compute_layout(tree: &GameTree, root: NodeId) -> TreeLayout {
-    // --- Pass 1: compute subtree widths bottom-up (iterative post-order) ---
-    let mut widths: HashMap<NodeId, usize> = HashMap::new();
-    let mut stack: Vec<(NodeId, bool)> = vec![(root, false)];
-
-    while let Some((id, processed)) = stack.pop() {
-        if processed {
-            let children = &tree.node(id).children;
-            if children.is_empty() {
-                widths.insert(id, 1);
+    // --- Pass 1: compute mainline lengths bottom-up (iterative post-order) ---
+    let mut mainline_len: HashMap<NodeId, usize> = HashMap::new();
+    {
+        let mut stack: Vec<(NodeId, bool)> = vec![(root, false)];
+        while let Some((id, processed)) = stack.pop() {
+            if processed {
+                let first_child = tree.node(id).children.first().copied();
+                let len = match first_child {
+                    Some(c) => 1 + mainline_len[&c],
+                    None => 1,
+                };
+                mainline_len.insert(id, len);
             } else {
-                let w: usize = children.iter().map(|&c| widths[&c]).sum();
-                widths.insert(id, w);
-            }
-        } else {
-            stack.push((id, true));
-            for &child in tree.node(id).children.iter().rev() {
-                stack.push((child, false));
+                stack.push((id, true));
+                for &child in tree.node(id).children.iter().rev() {
+                    stack.push((child, false));
+                }
             }
         }
     }
 
-    // --- Pass 2: assign (col, row) positions top-down (iterative pre-order) ---
+    // --- Pass 2: assign (col, row) via DFS with interval packing ---
+    // col_intervals[c] = list of (start_row, end_row) occupied intervals
+    let mut col_intervals: Vec<Vec<(usize, usize)>> = vec![Vec::new()];
     let mut positions: HashMap<NodeId, (usize, usize)> = HashMap::new();
     let mut max_col: usize = 0;
     let mut max_row: usize = 0;
 
-    // (id, col_start, depth)
-    let mut pos_stack: Vec<(NodeId, usize, usize)> = vec![(root, 0, 0)];
+    // Find the leftmost column > min_col where [start, end] doesn't overlap.
+    let find_free_col =
+        |col_intervals: &mut Vec<Vec<(usize, usize)>>, min_col: usize, start: usize, end: usize| -> usize {
+            for c in (min_col + 1).. {
+                // Ensure the column exists
+                while c >= col_intervals.len() {
+                    col_intervals.push(Vec::new());
+                }
+                let overlaps = col_intervals[c]
+                    .iter()
+                    .any(|&(s, e)| start <= e && end >= s);
+                if !overlaps {
+                    return c;
+                }
+            }
+            unreachable!()
+        };
 
-    while let Some((id, col_start, depth)) = pos_stack.pop() {
-        positions.insert(id, (col_start, depth));
-        if col_start > max_col {
-            max_col = col_start;
-        }
-        if depth > max_row {
-            max_row = depth;
-        }
+    enum Action {
+        Place(NodeId, usize, usize, bool), // id, col, depth, is_variation_root
+        DeferChild(NodeId, usize),          // parent_id, child_index
+    }
 
-        // Collect child assignments in forward order, then push reversed onto stack
-        let children = &tree.node(id).children;
-        let mut child_assignments: Vec<(NodeId, usize, usize)> = Vec::new();
-        let mut next_col = col_start;
-        for &child in children {
-            child_assignments.push((child, next_col, depth + 1));
-            next_col += widths[&child];
-        }
-        for assignment in child_assignments.into_iter().rev() {
-            pos_stack.push(assignment);
+    let mut stack: Vec<Action> = vec![Action::Place(root, 0, 0, true)];
+
+    while let Some(action) = stack.pop() {
+        match action {
+            Action::Place(id, col, depth, is_variation_root) => {
+                positions.insert(id, (col, depth));
+                if col > max_col {
+                    max_col = col;
+                }
+                if depth > max_row {
+                    max_row = depth;
+                }
+
+                // Record interval for variation roots
+                if is_variation_root {
+                    let end = depth + mainline_len[&id] - 1;
+                    while col >= col_intervals.len() {
+                        col_intervals.push(Vec::new());
+                    }
+                    col_intervals[col].push((depth, end));
+                }
+
+                // Schedule children in reverse so first child is processed first
+                let children = &tree.node(id).children;
+                if !children.is_empty() {
+                    // Defer non-first children (variations) in reverse order
+                    for i in (1..children.len()).rev() {
+                        stack.push(Action::DeferChild(id, i));
+                    }
+                    // First child inherits parent's column
+                    stack.push(Action::Place(children[0], col, depth + 1, false));
+                }
+            }
+            Action::DeferChild(parent_id, child_index) => {
+                let child_id = tree.node(parent_id).children[child_index];
+                let (parent_col, _) = positions[&parent_id];
+                let child_depth = positions[&parent_id].1 + 1;
+                let ml = mainline_len[&child_id];
+                let col = find_free_col(
+                    &mut col_intervals,
+                    parent_col,
+                    child_depth,
+                    child_depth + ml - 1,
+                );
+                stack.push(Action::Place(child_id, col, child_depth, true));
+            }
         }
     }
 
@@ -105,13 +152,18 @@ fn compute_layout(tree: &GameTree, root: NodeId) -> TreeLayout {
     TreeLayout { positions, max_col, max_row, move_numbers }
 }
 
-fn x_translation(max_col: usize, scroll_x: f32, panel_width: f32) -> f32 {
-    let total_width = 2.0 * PANEL_MARGIN + max_col as f32 * NODE_PITCH;
-    if total_width <= panel_width {
-        (panel_width - total_width) / 2.0
-    } else {
-        -scroll_x
-    }
+/// Compute translation to center the cursor node in the viewport.
+fn cursor_translation(
+    layout: &TreeLayout,
+    cursor: NodeId,
+    bounds: Rectangle,
+) -> (f32, f32) {
+    let (col, row) = layout.positions.get(&cursor).copied().unwrap_or((0, 0));
+    let cursor_x = PANEL_MARGIN + col as f32 * NODE_PITCH;
+    let cursor_y = PANEL_MARGIN + row as f32 * NODE_PITCH;
+    let tx = bounds.width / 2.0 - cursor_x;
+    let ty = bounds.height / 2.0 - cursor_y;
+    (tx, ty)
 }
 
 impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
@@ -125,48 +177,13 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
         cursor: mouse::Cursor,
     ) -> Option<Action<Message>> {
         match event {
-            Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
-                if cursor.is_over(bounds) {
-                    let (delta_x, delta_y) = match delta {
-                        mouse::ScrollDelta::Lines { x, y } => (x * NODE_PITCH, y * NODE_PITCH),
-                        mouse::ScrollDelta::Pixels { x, y } => (*x, *y),
-                    };
-
-                    // Use cached layout from last draw, or compute fresh
-                    let layout = state.cached.get_or_insert_with(|| {
-                        compute_layout(self.tree, self.root)
-                    });
-
-                    // vertical scroll
-                    let max_scroll_y = (PANEL_MARGIN * 2.0
-                        + layout.max_row as f32 * NODE_PITCH
-                        - bounds.height)
-                        .max(0.0);
-                    state.scroll_y = (state.scroll_y - delta_y).clamp(0.0, max_scroll_y);
-
-                    // horizontal scroll
-                    let total_width = PANEL_MARGIN * 2.0 + layout.max_col as f32 * NODE_PITCH;
-                    if total_width > bounds.width {
-                        let max_scroll_x = total_width - bounds.width;
-                        state.scroll_x = (state.scroll_x - delta_x).clamp(0.0, max_scroll_x);
-                    } else {
-                        state.scroll_x = 0.0;
-                    }
-
-                    Some(Action::capture())
-                } else {
-                    None
-                }
-            }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(pos) = cursor.position_in(bounds) {
-                    // Use cached layout from last draw, or compute fresh
-                    let layout = state.cached.get_or_insert_with(|| {
-                        compute_layout(self.tree, self.root)
-                    });
-                    let xt = x_translation(layout.max_col, state.scroll_x, bounds.width);
-                    let content_x = pos.x - xt;
-                    let content_y = pos.y + state.scroll_y;
+                    state.cached = Some(compute_layout(self.tree, self.root));
+                    let layout = state.cached.as_ref().unwrap();
+                    let (tx, ty) = cursor_translation(layout, self.cursor, bounds);
+                    let content_x = pos.x - tx;
+                    let content_y = pos.y - ty;
                     for (&id, &(col, row)) in &layout.positions {
                         let cx = PANEL_MARGIN + col as f32 * NODE_PITCH;
                         let cy = PANEL_MARGIN + row as f32 * NODE_PITCH;
@@ -204,8 +221,8 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
 
         let layout = compute_layout(self.tree, self.root);
 
-        let xt = x_translation(layout.max_col, state.scroll_x, bounds.width);
-        frame.translate(Vector::new(xt, -state.scroll_y));
+        let (tx, ty) = cursor_translation(&layout, self.cursor, bounds);
+        frame.translate(Vector::new(tx, ty));
 
         let edge_stroke = Stroke::default()
             .with_color(Color::from_rgb(0.55, 0.55, 0.55))
@@ -335,7 +352,6 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
         if let Some(pos) = cursor.position_in(bounds) {
-            // Use cached layout if available
             let layout;
             let layout_ref = match &state.cached {
                 Some(cached) => cached,
@@ -344,9 +360,9 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
                     &layout
                 }
             };
-            let xt = x_translation(layout_ref.max_col, state.scroll_x, bounds.width);
-            let content_x = pos.x - xt;
-            let content_y = pos.y + state.scroll_y;
+            let (tx, ty) = cursor_translation(layout_ref, self.cursor, bounds);
+            let content_x = pos.x - tx;
+            let content_y = pos.y - ty;
             for &(col, row) in layout_ref.positions.values() {
                 let cx = PANEL_MARGIN + col as f32 * NODE_PITCH;
                 let cy = PANEL_MARGIN + row as f32 * NODE_PITCH;

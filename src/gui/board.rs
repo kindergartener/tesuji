@@ -1,7 +1,5 @@
 use iced::{
-    Color, Event, Point, Rectangle, Size,
-    mouse,
-    widget::canvas::{self, Action, Frame, Path, Stroke},
+    Color, Event, Point, Rectangle, Size, gradient::ColorStop, mouse, widget::canvas::{self, Action, Frame, Gradient, Path, Stroke, gradient::Linear}
 };
 
 use crate::{
@@ -18,6 +16,7 @@ pub struct BoardProgram<'a> {
 struct BoardMetrics {
     cell_size: f32,
     margin: f32,
+    origin: Point,
     board_size: usize,
 }
 
@@ -30,19 +29,39 @@ impl BoardMetrics {
         } else {
             available - 2.0 * margin
         };
-        Self { cell_size, margin, board_size }
+        let origin = Point {
+            x: (bounds.width - available) / 2.0,
+            y: (bounds.height - available) / 2.0,
+        };
+        Self { cell_size, margin, origin, board_size }
+    }
+
+    /// The square region covered by the board (grid + margin padding).
+    fn board_rect(&self) -> Rectangle {
+        let side = self.margin * 2.0
+            + if self.board_size > 1 {
+                self.cell_size * (self.board_size as f32 - 1.0)
+            } else {
+                self.cell_size
+            };
+        Rectangle {
+            x: self.origin.x,
+            y: self.origin.y,
+            width: side,
+            height: side,
+        }
     }
 
     fn coord_to_pixel(&self, col: usize, row: usize) -> Point {
         Point {
-            x: self.margin + col as f32 * self.cell_size,
-            y: self.margin + row as f32 * self.cell_size,
+            x: self.origin.x + self.margin + col as f32 * self.cell_size,
+            y: self.origin.y + self.margin + row as f32 * self.cell_size,
         }
     }
 
     fn pixel_to_coord(&self, pos: Point) -> Option<(usize, usize)> {
-        let col_f = (pos.x - self.margin) / self.cell_size;
-        let row_f = (pos.y - self.margin) / self.cell_size;
+        let col_f = (pos.x - self.origin.x - self.margin) / self.cell_size;
+        let row_f = (pos.y - self.origin.y - self.margin) / self.cell_size;
 
         let col = col_f.round() as i32;
         let row = row_f.round() as i32;
@@ -125,19 +144,29 @@ impl<'a> canvas::Program<Message> for BoardProgram<'a> {
         let metrics = BoardMetrics::new(bounds.size(), self.board.size);
         let size = self.board.size;
 
-        // 1. Background
-        frame.fill_rectangle(Point::ORIGIN, bounds.size(), theme::BOARD_WOOD);
+        // 1. Background — fill only the square board area
+        let board_rect = metrics.board_rect();
+        frame.fill_rectangle(
+            Point { x: board_rect.x, y: board_rect.y },
+            Size { width: board_rect.width, height: board_rect.height },
+            theme::BOARD_WOOD,
+        );
 
         // 2. Grid lines
-        let grid_stroke = || Stroke::default().with_color(theme::GRID_LINE).with_width(1.0);
+        let make_stroke = |color| Stroke::default().with_color(color).with_width(1.0);
         for i in 0..size {
-            let start = metrics.coord_to_pixel(0, i);
-            let end = metrics.coord_to_pixel(size - 1, i);
-            frame.stroke(&Path::line(start, end), grid_stroke());
+            let stroke = make_stroke(if i == 0 || i == size - 1 {
+                theme::BORDER_LINE
+            } else {
+                theme::GRID_LINE
+            });
 
-            let start = metrics.coord_to_pixel(i, 0);
-            let end = metrics.coord_to_pixel(i, size - 1);
-            frame.stroke(&Path::line(start, end), grid_stroke());
+            for (x1, y1, x2, y2) in [
+                (0, i, size - 1, i),
+                (i, 0, i, size - 1)
+            ] {
+                frame.stroke(&Path::line(metrics.coord_to_pixel(x1, y1), metrics.coord_to_pixel(x2, y2)), stroke);
+            }
         }
 
         // 3. Star points
@@ -164,27 +193,57 @@ impl<'a> canvas::Program<Message> for BoardProgram<'a> {
                 };
                 frame.fill(&Path::circle(shadow_center, stone_r), theme::STONE_SHADOW);
                 frame.fill(&Path::circle(center, stone_r), color);
-                // Thin outline for white stones
+
+                // Diffuse shading — diagonal linear gradient (light from top-left)
+                let (highlight, shade) = match self.board.cells[row][col] {
+                    Cell::Black => (theme::BLACK_HIGHLIGHT, theme::BLACK_SHADE),
+                    Cell::White => (theme::WHITE_HIGHLIGHT, theme::WHITE_SHADE),
+                    Cell::Empty => unreachable!(),
+                };
+                let grad = Gradient::Linear(Linear::new(
+                        Point { x: center.x - stone_r, y: center.y - stone_r },
+                        Point { x: center.x + stone_r, y: center.y + stone_r }
+                    ).add_stops([
+                        ColorStop { offset: 0.0, color: highlight },
+                        ColorStop { offset: 1.0, color: shade }
+                    ])
+                );
+                frame.fill(&Path::circle(center, stone_r), grad);
+
+                // Thin outline for black stone
+                if self.board.cells[row][col] == Cell::Black {
+                    frame.stroke(
+                        &Path::circle(center, stone_r),
+                        Stroke::default()
+                            .with_color(theme::BLACK_OUTLINE)
+                            .with_width(1.0),
+                    );
+                }
+                // Thin outline for white stone
                 if self.board.cells[row][col] == Cell::White {
                     frame.stroke(
                         &Path::circle(center, stone_r),
                         Stroke::default()
-                            .with_color(Color::from_rgb(0.6, 0.6, 0.58))
-                            .with_width(0.5),
+                            .with_color(theme::WHITE_OUTLINE)
+                            .with_width(1.0),
                     );
                 }
+
             }
         }
 
         // 5. Last-move marker
         if let Some((col, row)) = self.last_move {
             let center = metrics.coord_to_pixel(col, row);
-            let marker_r = stone_r * 0.35;
-            let marker_color = match self.board.cells[row][col] {
-                Cell::Black => Color::from_rgb(0.95, 0.95, 0.92),
-                _ => theme::LAST_MOVE_MARKER,
+            let marker_r_inner = stone_r * 0.40;
+            let marker_r_outer = stone_r * 0.55;
+            let (marker_color_inner, marker_color_outer) = match self.board.cells[row][col] {
+                Cell::Black => (theme::STONE_BLACK, theme::STONE_WHITE),
+                Cell::White => (theme::STONE_WHITE, theme::STONE_BLACK),
+                Cell::Empty => unreachable!()
             };
-            frame.fill(&Path::circle(center, marker_r), marker_color);
+            frame.fill(&Path::circle(center, marker_r_outer), marker_color_outer);
+            frame.fill(&Path::circle(center, marker_r_inner), marker_color_inner);
         }
 
         // 6. Ko marker

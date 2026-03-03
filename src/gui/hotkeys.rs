@@ -6,6 +6,10 @@ use super::Message;
 pub enum Hotkey {
     NavigatePrev,
     NavigateNext,
+    NavigatePrevVariation,
+    NavigateNextVariation,
+    NavigateFirstVariation,
+    NavigateLastVariation,
     NavigateFirst,
     NavigateLast,
     Undo,
@@ -17,6 +21,10 @@ impl Hotkey {
         match self {
             Hotkey::NavigatePrev => Message::NavigatePrev,
             Hotkey::NavigateNext => Message::NavigateNext,
+            Hotkey::NavigatePrevVariation => Message::NavigatePrevVariation,
+            Hotkey::NavigateNextVariation => Message::NavigateNextVariation,
+            Hotkey::NavigateFirstVariation => Message::NavigateFirstVariation,
+            Hotkey::NavigateLastVariation => Message::NavigateLastVariation,
             Hotkey::NavigateFirst => Message::NavigateFirst,
             Hotkey::NavigateLast => Message::NavigateLast,
             Hotkey::Undo => Message::UndoRequested,
@@ -27,14 +35,22 @@ impl Hotkey {
 
 fn handle_key_press(key: Key, modifiers: Modifiers) -> Option<Message> {
     match key {
-        Key::Named(Named::ArrowLeft) if modifiers.shift() => {
+        Key::Named(Named::ArrowUp) if modifiers.shift() => {
             Some(Hotkey::NavigateFirst.to_message())
         }
-        Key::Named(Named::ArrowRight) if modifiers.shift() => {
+        Key::Named(Named::ArrowDown) if modifiers.shift() => {
             Some(Hotkey::NavigateLast.to_message())
         }
-        Key::Named(Named::ArrowLeft) => Some(Hotkey::NavigatePrev.to_message()),
-        Key::Named(Named::ArrowRight) => Some(Hotkey::NavigateNext.to_message()),
+        Key::Named(Named::ArrowLeft) if modifiers.shift() => {
+            Some(Hotkey::NavigateFirstVariation.to_message())
+        }
+        Key::Named(Named::ArrowRight) if modifiers.shift() => {
+            Some(Hotkey::NavigateLastVariation.to_message())
+        }
+        Key::Named(Named::ArrowUp) => Some(Hotkey::NavigatePrev.to_message()),
+        Key::Named(Named::ArrowDown) => Some(Hotkey::NavigateNext.to_message()),
+        Key::Named(Named::ArrowLeft) => Some(Hotkey::NavigatePrevVariation.to_message()),
+        Key::Named(Named::ArrowRight) => Some(Hotkey::NavigateNextVariation.to_message()),
         // Ctrl+Shift+Z → Redo (must come before Ctrl+Z)
         Key::Character(ref c) if c.as_str() == "z" && modifiers.control() && modifiers.shift() => {
             Some(Hotkey::Redo.to_message())

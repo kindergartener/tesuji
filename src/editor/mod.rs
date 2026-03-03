@@ -19,6 +19,10 @@ pub enum EditCommand {
     NavigateNext,
     NavigatePrev,
     NavigateBranch(usize),
+    NavigateNextVariation,
+    NavigatePrevVariation,
+    NavigateFirstVariation,
+    NavigateLastVariation,
     NavigateFirst,
     NavigateLast,
     NavigateToNode(NodeId),
@@ -110,6 +114,26 @@ impl Editor {
                     self.cursor = p;
                 }
             }
+            EditCommand::NavigateNextVariation => {
+                self.switch_variation(|idx, len| {
+                    if idx + 1 < len { Some(idx + 1) } else { None }
+                });
+            }
+            EditCommand::NavigatePrevVariation => {
+                self.switch_variation(|idx, _| {
+                    if idx > 0 { Some(idx - 1) } else { None }
+                });
+            }
+            EditCommand::NavigateFirstVariation => {
+                self.switch_variation(|idx, _| {
+                    if idx > 0 { Some(0) } else { None }
+                });
+            }
+            EditCommand::NavigateLastVariation => {
+                self.switch_variation(|idx, len| {
+                    if idx + 1 < len { Some(len - 1) } else { None }
+                });
+            }
             EditCommand::NavigateBranch(n) => {
                 if let Some(&c) = self.tree.node(self.cursor).children.get(n) {
                     self.cursor = c;
@@ -149,6 +173,39 @@ impl Editor {
                     self.cursor = cursor;
                 }
             }
+        }
+    }
+
+    /// Walk up from cursor to the nearest branch point, pick a sibling via
+    /// `pick`, then walk back down the same number of mainline steps.
+    fn switch_variation(&mut self, pick: impl Fn(usize, usize) -> Option<usize>) {
+        let mut node = self.cursor;
+        let mut depth = 0;
+
+        // Walk up until we find a node whose parent has multiple children
+        loop {
+            let parent = match self.tree.node(node).parent {
+                Some(p) => p,
+                None => return, // reached root without finding a branch
+            };
+            let siblings = &self.tree.node(parent).children;
+            if siblings.len() > 1 {
+                let idx = siblings.iter().position(|&c| c == node).unwrap();
+                if let Some(target_idx) = pick(idx, siblings.len()) {
+                    let mut target = siblings[target_idx];
+                    // Walk back down `depth` steps along the mainline
+                    for _ in 0..depth {
+                        match self.tree.node(target).children.first() {
+                            Some(&c) => target = c,
+                            None => break, // variation is shorter, stop at its leaf
+                        }
+                    }
+                    self.cursor = target;
+                }
+                return;
+            }
+            node = parent;
+            depth += 1;
         }
     }
 }
