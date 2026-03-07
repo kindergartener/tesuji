@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use iced::{
     Color, Element, Length, Task,
-    widget::{button, canvas::Canvas, column, container, row, text},
+    widget::{button, canvas::Canvas, column, container, row, rule, text, Space},
 };
 
 use crate::{
@@ -341,27 +341,12 @@ impl GuiApp {
 
     pub fn view(&self) -> Element<'_, Message> {
         let board = &self.cached_board;
-        let move_num = board.move_number;
         let player = current_player(board);
-        let player_name = match player {
-            Cell::Black => "Black",
-            Cell::White => "White",
-            Cell::Empty => unreachable!(),
-        };
 
         // Compute last move coord from the current cursor node
         let last_move = last_move_coord(&self.editor);
 
-        // Toolbar
-        let toolbar = row![
-            button("Open").on_press(Message::OpenFileRequested),
-            button("Save").on_press(Message::SaveFileRequested),
-            button("Save As").on_press(Message::SaveAsRequested),
-            button("New Game").on_press(Message::NewGameRequested),
-        ]
-        .spacing(8);
-
-        // Board canvas
+        // ── Left column: board canvas ──
         let program = BoardProgram {
             board,
             hover: self.hover_coord,
@@ -370,15 +355,21 @@ impl GuiApp {
         let board_canvas = Canvas::new(program)
             .width(Length::Fill)
             .height(Length::Fill);
-        let board_container = container(board_canvas)
+        let left_col = container(board_canvas)
             .width(Length::Fill)
             .height(Length::Fill);
 
-        // Game tree panel
+        // ── Right column: info panels ──
         let game_root = self.editor.tree.roots
             .get(self.active_game_index)
             .copied()
             .unwrap_or(0);
+        let info = extract_game_info(&self.editor.tree, game_root);
+
+        // Game info panel
+        let game_info_panel = self.view_game_info(&info, board, player);
+
+        // Game tree panel
         let tree_program = TreePanelProgram {
             tree: &self.editor.tree,
             root: game_root,
@@ -386,37 +377,19 @@ impl GuiApp {
         };
         let tree_panel = container(
             Canvas::new(tree_program)
-                .width(Length::Fixed(200.0))
+                .width(Length::Fill)
                 .height(Length::Fill),
         )
         .height(Length::Fill);
 
-        let main_row = row![board_container, tree_panel]
-            .height(Length::Fill)
-            .spacing(4);
+        // Engine console placeholder
+        let engine_panel = container(
+            text("Engine Console").size(12).color(theme::INFO_LABEL),
+        )
+        .padding(theme::PANEL_PADDING);
 
-        // Nav row
-        let nav_info = format!("Move {move_num} · {player_name} to play");
-        let nav_row = row![
-            button("◀ Prev").on_press(Message::NavigatePrev),
-            text(nav_info).size(14),
-            button("Next ▶").on_press(Message::NavigateNext),
-        ]
-        .spacing(8)
-        .align_y(iced::Alignment::Center);
-
-        // Capture row
-        let capture_info = format!(
-            "Captured: ● {}  ○ {}",
-            board.captured_white,
-            board.captured_black,
-        );
-        let capture_row = row![
-            text(capture_info).size(14),
-            button("Pass").on_press(Message::PassRequested),
-        ]
-        .spacing(8)
-        .align_y(iced::Alignment::Center);
+        // Game controls panel
+        let controls_panel = self.view_game_controls();
 
         // Status bar
         let maybe_status: Element<'_, Message> = if let Some(status) = &self.status_message {
@@ -443,19 +416,32 @@ impl GuiApp {
             .padding(4)
             .into()
         } else {
-            text("").into()
+            Space::new().into()
         };
 
-        let normal_content: Element<'_, Message> = column![
-            toolbar,
-            main_row,
-            nav_row,
-            capture_row,
+        let right_col: Element<'_, Message> = column![
+            game_info_panel,
+            rule::horizontal(1),
+            tree_panel,
+            rule::horizontal(1),
+            engine_panel,
+            rule::horizontal(1),
+            controls_panel,
             maybe_status,
         ]
-        .spacing(6)
-        .padding(8)
+        .spacing(theme::PANEL_SPACING)
+        .width(Length::Fixed(theme::RIGHT_PANEL_WIDTH))
         .into();
+
+        let main_row = row![left_col, right_col]
+            .height(Length::Fill)
+            .spacing(theme::PANEL_SPACING);
+
+        let normal_content: Element<'_, Message> = container(main_row)
+            .padding(theme::PANEL_PADDING)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
 
         if self.confirm_delete {
             let backdrop = container(text(""))
@@ -501,6 +487,172 @@ impl GuiApp {
             normal_content
         }
     }
+
+    /// Build the game info panel widget.
+    ///
+    /// Layout:
+    /// ```text
+    /// <w-name> <w-rank> ● ○ <b-rank> <b-name>
+    ///     <w-capt>   Captured   <b-capt>
+    ///     <w-hand>   Handicap   <b-hand>
+    ///             <komi>   Komi
+    /// ```
+    fn view_game_info(
+        &self,
+        info: &GameInfo,
+        board: &Board,
+        current: Cell,
+    ) -> Element<'_, Message> {
+        let white_active = current == Cell::White;
+        let black_active = current == Cell::Black;
+
+        let w_stone_size = if white_active {
+            theme::ACTIVE_STONE_SIZE
+        } else {
+            theme::INACTIVE_STONE_SIZE
+        };
+        let b_stone_size = if black_active {
+            theme::ACTIVE_STONE_SIZE
+        } else {
+            theme::INACTIVE_STONE_SIZE
+        };
+
+        let w_name: String = if info.white_name.is_empty() { "White".into() } else { info.white_name.clone() };
+        let b_name: String = if info.black_name.is_empty() { "Black".into() } else { info.black_name.clone() };
+
+        // Row 1: <w-name> <w-rank> ● ○ <b-rank> <b-name>
+        let mut player_row = row![]
+            .spacing(4)
+            .align_y(iced::Alignment::Center);
+
+        player_row = player_row.push(text(w_name).size(13));
+        if !info.white_rank.is_empty() {
+            player_row = player_row.push(
+                text(info.white_rank.clone()).size(11).color(theme::INFO_LABEL),
+            );
+        }
+        player_row = player_row.push(text("●").size(w_stone_size));
+        player_row = player_row.push(Space::new().width(Length::Fill));
+        player_row = player_row.push(text("○").size(b_stone_size));
+        if !info.black_rank.is_empty() {
+            player_row = player_row.push(
+                text(info.black_rank.clone()).size(11).color(theme::INFO_LABEL),
+            );
+        }
+        player_row = player_row.push(text(b_name).size(13));
+
+        // Row 2: captures
+        let capture_row = row![
+            text(board.captured_black.to_string()).size(13),
+            Space::new().width(Length::Fill),
+            text("Captured").size(11).color(theme::INFO_LABEL),
+            Space::new().width(Length::Fill),
+            text(board.captured_white.to_string()).size(13),
+        ]
+        .align_y(iced::Alignment::Center);
+
+        // Row 3: handicap (only if present)
+        let handicap_row: Option<Element<'_, Message>> = info.handicap.map(|h| {
+            row![
+                text(h.to_string()).size(13),
+                Space::new().width(Length::Fill),
+                text("Handicap").size(11).color(theme::INFO_LABEL),
+                Space::new().width(Length::Fill),
+                text(h.to_string()).size(13),
+            ]
+            .align_y(iced::Alignment::Center)
+            .into()
+        });
+
+        // Row 4: komi
+        let komi_row = row![
+            Space::new().width(Length::Fill),
+            text(info.komi.clone()).size(13),
+            text("  Komi").size(11).color(theme::INFO_LABEL),
+            Space::new().width(Length::Fill),
+        ]
+        .align_y(iced::Alignment::Center);
+
+        // Move info
+        let move_info = row![
+            text(format!("Move {}", board.move_number)).size(12).color(theme::INFO_LABEL),
+        ];
+
+        let mut col = column![player_row, capture_row]
+            .spacing(4);
+        if let Some(h) = handicap_row {
+            col = col.push(h);
+        }
+        col = col.push(komi_row);
+        col = col.push(move_info);
+
+        container(col)
+            .padding(theme::PANEL_PADDING)
+            .width(Length::Fill)
+            .into()
+    }
+
+    /// Build the game controls panel.
+    fn view_game_controls(&self) -> Element<'_, Message> {
+        let top_row = row![
+            button("Pass").on_press(Message::PassRequested),
+            button("◀").on_press(Message::NavigatePrev),
+            button("▶").on_press(Message::NavigateNext),
+        ]
+        .spacing(4);
+
+        let bottom_row = row![
+            button("Open").on_press(Message::OpenFileRequested),
+            button("Save").on_press(Message::SaveFileRequested),
+            button("Save As").on_press(Message::SaveAsRequested),
+            button("New").on_press(Message::NewGameRequested),
+        ]
+        .spacing(4);
+
+        container(
+            column![top_row, bottom_row].spacing(4),
+        )
+        .padding(theme::PANEL_PADDING)
+        .width(Length::Fill)
+        .into()
+    }
+}
+
+/// Game metadata extracted from the root node's SGF properties.
+struct GameInfo {
+    white_name: String,
+    black_name: String,
+    white_rank: String,
+    black_rank: String,
+    komi: String,
+    handicap: Option<u8>,
+    result: String,
+}
+
+/// Extract game info from the root node of the active game.
+fn extract_game_info(tree: &crate::sgf::GameTree, root: NodeId) -> GameInfo {
+    let mut info = GameInfo {
+        white_name: String::new(),
+        black_name: String::new(),
+        white_rank: String::new(),
+        black_rank: String::new(),
+        komi: String::new(),
+        handicap: None,
+        result: String::new(),
+    };
+    for prop in &tree.node(root).properties {
+        match prop {
+            SGFProperty::PW(s) => info.white_name = s.clone(),
+            SGFProperty::PB(s) => info.black_name = s.clone(),
+            SGFProperty::WR(s) => info.white_rank = s.clone(),
+            SGFProperty::BR(s) => info.black_rank = s.clone(),
+            SGFProperty::KM(k) => info.komi = k.to_string(),
+            SGFProperty::HA(n) => info.handicap = Some(*n),
+            SGFProperty::RE(s) => info.result = s.clone(),
+            _ => {}
+        }
+    }
+    info
 }
 
 fn new_game_tree() -> GameTree {

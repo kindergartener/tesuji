@@ -82,6 +82,15 @@ pub enum SGFProperty {
     /// White player name
     PW(String),
 
+    /// Black rank
+    BR(String),
+
+    /// White rank
+    WR(String),
+
+    /// Handicap
+    HA(u8),
+
     /// Result
     RE(String),
 
@@ -279,6 +288,9 @@ impl Display for SGFProperty {
             Self::SZ(n) => write!(f, "SZ[{}]", n),
             Self::PB(s) => write!(f, "PB[{}]", s),
             Self::PW(s) => write!(f, "PW[{}]", s),
+            Self::BR(s) => write!(f, "BR[{}]", s),
+            Self::WR(s) => write!(f, "WR[{}]", s),
+            Self::HA(n) => write!(f, "HA[{}]", n),
             Self::RE(s) => write!(f, "RE[{}]", s),
             Self::C(s) => write!(f, "C[{}]", s),
             Self::Unknown(key, values) => {

@@ -29,3 +29,13 @@ pub const STATUS_ERROR: Color = color!(0x5C0900);
 
 // Tree panel
 pub const TREE_CURSOR_RING: Color = KO_MARKER;
+
+// Layout
+pub const PANEL_SPACING: f32 = 6.0;
+pub const PANEL_PADDING: u16 = 8;
+pub const RIGHT_PANEL_WIDTH: f32 = 240.0;
+
+// Game info panel
+pub const INFO_LABEL: Color = color!(0x888888);
+pub const ACTIVE_STONE_SIZE: f32 = 16.0;
+pub const INACTIVE_STONE_SIZE: f32 = 11.0;
