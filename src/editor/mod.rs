@@ -59,7 +59,12 @@ fn property_key(p: &SGFProperty) -> &str {
 impl Editor {
     pub fn new(tree: GameTree) -> Self {
         let cursor = tree.roots.first().copied().unwrap_or(0);
-        Self { tree, cursor, undo_stack: Vec::new(), redo_stack: Vec::new() }
+        Self {
+            tree,
+            cursor,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+        }
     }
 
     pub fn apply(&mut self, cmd: EditCommand) {
@@ -118,24 +123,16 @@ impl Editor {
                 }
             }
             EditCommand::NavigateNextVariation => {
-                self.switch_variation(|idx, len| {
-                    if idx + 1 < len { Some(idx + 1) } else { None }
-                });
+                self.switch_variation(|idx, len| if idx + 1 < len { Some(idx + 1) } else { None });
             }
             EditCommand::NavigatePrevVariation => {
-                self.switch_variation(|idx, _| {
-                    if idx > 0 { Some(idx - 1) } else { None }
-                });
+                self.switch_variation(|idx, _| if idx > 0 { Some(idx - 1) } else { None });
             }
             EditCommand::NavigateFirstVariation => {
-                self.switch_variation(|idx, _| {
-                    if idx > 0 { Some(0) } else { None }
-                });
+                self.switch_variation(|idx, _| if idx > 0 { Some(0) } else { None });
             }
             EditCommand::NavigateLastVariation => {
-                self.switch_variation(|idx, len| {
-                    if idx + 1 < len { Some(len - 1) } else { None }
-                });
+                self.switch_variation(|idx, len| if idx + 1 < len { Some(len - 1) } else { None });
             }
             EditCommand::NavigateBranch(n) => {
                 if let Some(&c) = self.tree.node(self.cursor).children.get(n) {

@@ -199,8 +199,12 @@ fn render_node(tree: &GameTree, id: usize, depth: usize, cursor: usize, out: &mu
     let indent = "  ".repeat(depth);
     let marker = if id == cursor { "* " } else { "  " };
     let node = tree.node(id);
-    let label: String =
-        node.properties.iter().map(|p| format!("{p}")).collect::<Vec<_>>().join(" ");
+    let label: String = node
+        .properties
+        .iter()
+        .map(|p| format!("{p}"))
+        .collect::<Vec<_>>()
+        .join(" ");
     out.push_str(&format!("{indent}{marker}[{id}] {label}\n"));
     for &child in &node.children {
         render_node(tree, child, depth + 1, cursor, out);

@@ -1,5 +1,5 @@
-use iced::keyboard::{Event, Key, Modifiers, key::Named};
 use iced::Subscription;
+use iced::keyboard::{Event, Key, Modifiers, key::Named};
 
 use super::Message;
 
@@ -35,9 +35,7 @@ impl Hotkey {
 
 fn handle_key_press(key: Key, modifiers: Modifiers) -> Option<Message> {
     match key {
-        Key::Named(Named::ArrowUp) if modifiers.shift() => {
-            Some(Hotkey::NavigateFirst.to_message())
-        }
+        Key::Named(Named::ArrowUp) if modifiers.shift() => Some(Hotkey::NavigateFirst.to_message()),
         Key::Named(Named::ArrowDown) if modifiers.shift() => {
             Some(Hotkey::NavigateLast.to_message())
         }

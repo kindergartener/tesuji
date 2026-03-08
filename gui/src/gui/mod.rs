@@ -9,12 +9,14 @@ use std::path::PathBuf;
 
 use iced::{
     Color, Element, Length, Task,
-    widget::{button, canvas::Canvas, column, container, row, rule, text, Space},
+    widget::{Space, button, canvas::Canvas, column, container, row, rule, text},
 };
 
-use tesuji::{EditCommand, Editor, parse_sgf, write_sgf};
-use tesuji::sgf::{Board, Cell, GameTree, NodeId, SGFProperty, count_liberties, find_group, orthogonal_neighbors};
 use tesuji::sgf::node::GoCoord;
+use tesuji::sgf::{
+    Board, Cell, GameTree, NodeId, SGFProperty, count_liberties, find_group, orthogonal_neighbors,
+};
+use tesuji::{EditCommand, Editor, parse_sgf, write_sgf};
 
 use crate::gui::{
     assets::BoardAssets,
@@ -51,13 +53,22 @@ pub enum StatusKind {
 
 impl StatusMessage {
     fn info(text: impl Into<String>) -> Self {
-        Self { text: text.into(), kind: StatusKind::Info }
+        Self {
+            text: text.into(),
+            kind: StatusKind::Info,
+        }
     }
     fn warning(text: impl Into<String>) -> Self {
-        Self { text: text.into(), kind: StatusKind::Warning }
+        Self {
+            text: text.into(),
+            kind: StatusKind::Warning,
+        }
     }
     fn error(text: impl Into<String>) -> Self {
-        Self { text: text.into(), kind: StatusKind::Error }
+        Self {
+            text: text.into(),
+            kind: StatusKind::Error,
+        }
     }
 }
 
@@ -71,9 +82,17 @@ pub enum Message {
     FileSaved(Result<PathBuf, String>),
 
     // Board interaction
-    BoardClicked { col: usize, row: usize },
-    BoardHovered { col: Option<usize>, row: Option<usize> },
-    BoardResized { cell_size: f32 },
+    BoardClicked {
+        col: usize,
+        row: usize,
+    },
+    BoardHovered {
+        col: Option<usize>,
+        row: Option<usize>,
+    },
+    BoardResized {
+        cell_size: f32,
+    },
     PassRequested,
 
     // Delete node
@@ -170,10 +189,8 @@ impl GuiApp {
             }
             Message::FileSaved(Ok(path)) => {
                 self.file_path = Some(path.clone());
-                self.status_message = Some(StatusMessage::info(format!(
-                    "Saved to {}",
-                    path.display()
-                )));
+                self.status_message =
+                    Some(StatusMessage::info(format!("Saved to {}", path.display())));
             }
             Message::FileSaved(Err(e)) => {
                 self.status_message = Some(StatusMessage::error(format!("Save failed: {e}")));
@@ -181,7 +198,8 @@ impl GuiApp {
             Message::BoardClicked { col, row } => {
                 // Check if clicking on the last-move marker -> trigger delete confirmation
                 if let Some((last_col, last_row)) = last_move_coord(&self.editor)
-                    && col == last_col && row == last_row
+                    && col == last_col
+                    && row == last_row
                 {
                     self.confirm_delete = true;
                     return Task::none();
@@ -201,17 +219,23 @@ impl GuiApp {
                             .children
                             .iter()
                             .find(|&&id| {
-                                self.editor.tree.node(id).properties.iter().any(|p| match p {
-                                    SGFProperty::B(c) | SGFProperty::W(c) => *c == move_coord,
-                                    _ => false,
-                                })
+                                self.editor
+                                    .tree
+                                    .node(id)
+                                    .properties
+                                    .iter()
+                                    .any(|p| match p {
+                                        SGFProperty::B(c) | SGFProperty::W(c) => *c == move_coord,
+                                        _ => false,
+                                    })
                             })
                             .copied();
                         if let Some(child_id) = existing {
                             // Navigate to existing variation: push board, apply child node
                             self.board_history.push(self.cached_board.clone());
                             self.editor.cursor = child_id;
-                            self.cached_board.apply_node(self.editor.tree.node(child_id));
+                            self.cached_board
+                                .apply_node(self.editor.tree.node(child_id));
                         } else {
                             // New move: push board, apply command (which advances cursor)
                             self.board_history.push(self.cached_board.clone());
@@ -368,7 +392,10 @@ impl GuiApp {
             .height(Length::Fill);
 
         // ── Right column: info panels ──
-        let game_root = self.editor.tree.roots
+        let game_root = self
+            .editor
+            .tree
+            .roots
             .get(self.active_game_index)
             .copied()
             .unwrap_or(0);
@@ -391,10 +418,8 @@ impl GuiApp {
         .height(Length::Fill);
 
         // Engine console placeholder
-        let engine_panel = container(
-            text("Engine Console").size(12).color(theme::INFO_LABEL),
-        )
-        .padding(theme::PANEL_PADDING);
+        let engine_panel = container(text("Engine Console").size(12).color(theme::INFO_LABEL))
+            .padding(theme::PANEL_PADDING);
 
         // Game controls panel
         let controls_panel = self.view_game_controls();
@@ -525,18 +550,26 @@ impl GuiApp {
             theme::INACTIVE_STONE_SIZE
         };
 
-        let w_name: String = if info.white_name.is_empty() { "White".into() } else { info.white_name.clone() };
-        let b_name: String = if info.black_name.is_empty() { "Black".into() } else { info.black_name.clone() };
+        let w_name: String = if info.white_name.is_empty() {
+            "White".into()
+        } else {
+            info.white_name.clone()
+        };
+        let b_name: String = if info.black_name.is_empty() {
+            "Black".into()
+        } else {
+            info.black_name.clone()
+        };
 
         // Row 1: <w-name> <w-rank> ● ○ <b-rank> <b-name>
-        let mut player_row = row![]
-            .spacing(4)
-            .align_y(iced::Alignment::Center);
+        let mut player_row = row![].spacing(4).align_y(iced::Alignment::Center);
 
         player_row = player_row.push(text(w_name).size(13));
         if !info.white_rank.is_empty() {
             player_row = player_row.push(
-                text(info.white_rank.clone()).size(11).color(theme::INFO_LABEL),
+                text(info.white_rank.clone())
+                    .size(11)
+                    .color(theme::INFO_LABEL),
             );
         }
         player_row = player_row.push(text("●").size(w_stone_size));
@@ -544,7 +577,9 @@ impl GuiApp {
         player_row = player_row.push(text("○").size(b_stone_size));
         if !info.black_rank.is_empty() {
             player_row = player_row.push(
-                text(info.black_rank.clone()).size(11).color(theme::INFO_LABEL),
+                text(info.black_rank.clone())
+                    .size(11)
+                    .color(theme::INFO_LABEL),
             );
         }
         player_row = player_row.push(text(b_name).size(13));
@@ -583,11 +618,12 @@ impl GuiApp {
 
         // Move info
         let move_info = row![
-            text(format!("Move {}", board.move_number)).size(12).color(theme::INFO_LABEL),
+            text(format!("Move {}", board.move_number))
+                .size(12)
+                .color(theme::INFO_LABEL),
         ];
 
-        let mut col = column![player_row, capture_row]
-            .spacing(4);
+        let mut col = column![player_row, capture_row].spacing(4);
         if let Some(h) = handicap_row {
             col = col.push(h);
         }
@@ -617,12 +653,10 @@ impl GuiApp {
         ]
         .spacing(4);
 
-        container(
-            column![top_row, bottom_row].spacing(4),
-        )
-        .padding(theme::PANEL_PADDING)
-        .width(Length::Fill)
-        .into()
+        container(column![top_row, bottom_row].spacing(4))
+            .padding(theme::PANEL_PADDING)
+            .width(Length::Fill)
+            .into()
     }
 }
 

@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use iced::{Color, Event, Point, Rectangle, Vector, mouse};
 use iced::widget::canvas::{self, Action, Frame, Path, Stroke};
+use iced::{Color, Event, Point, Rectangle, Vector, mouse};
 
-use tesuji::sgf::{GameTree, NodeId, SGFProperty};
 use crate::gui::{Message, theme};
+use tesuji::sgf::{GameTree, NodeId, SGFProperty};
 
 const NODE_RADIUS: f32 = 8.0;
 const NODE_PITCH: f32 = 28.0;
@@ -61,26 +61,29 @@ fn compute_layout(tree: &GameTree, root: NodeId) -> TreeLayout {
     let mut max_row: usize = 0;
 
     // Find the leftmost column > min_col where [start, end] doesn't overlap.
-    let find_free_col =
-        |col_intervals: &mut Vec<Vec<(usize, usize)>>, min_col: usize, start: usize, end: usize| -> usize {
-            for c in (min_col + 1).. {
-                // Ensure the column exists
-                while c >= col_intervals.len() {
-                    col_intervals.push(Vec::new());
-                }
-                let overlaps = col_intervals[c]
-                    .iter()
-                    .any(|&(s, e)| start <= e && end >= s);
-                if !overlaps {
-                    return c;
-                }
+    let find_free_col = |col_intervals: &mut Vec<Vec<(usize, usize)>>,
+                         min_col: usize,
+                         start: usize,
+                         end: usize|
+     -> usize {
+        for c in (min_col + 1).. {
+            // Ensure the column exists
+            while c >= col_intervals.len() {
+                col_intervals.push(Vec::new());
             }
-            unreachable!()
-        };
+            let overlaps = col_intervals[c]
+                .iter()
+                .any(|&(s, e)| start <= e && end >= s);
+            if !overlaps {
+                return c;
+            }
+        }
+        unreachable!()
+    };
 
     enum Action {
         Place(NodeId, usize, usize, bool), // id, col, depth, is_variation_root
-        DeferChild(NodeId, usize),          // parent_id, child_index
+        DeferChild(NodeId, usize),         // parent_id, child_index
     }
 
     let mut stack: Vec<Action> = vec![Action::Place(root, 0, 0, true)];
@@ -138,26 +141,33 @@ fn compute_layout(tree: &GameTree, root: NodeId) -> TreeLayout {
     let mut mn_stack: Vec<(NodeId, usize)> = vec![(root, 0)];
 
     while let Some((id, parent_moves)) = mn_stack.pop() {
-        let is_move = tree.node(id).properties.iter().any(|p| {
-            matches!(p, SGFProperty::B(_) | SGFProperty::W(_))
-        });
+        let is_move = tree
+            .node(id)
+            .properties
+            .iter()
+            .any(|p| matches!(p, SGFProperty::B(_) | SGFProperty::W(_)));
         let this_moves = if is_move { parent_moves + 1 } else { 0 };
         move_numbers.insert(id, this_moves);
-        let next = if is_move { parent_moves + 1 } else { parent_moves };
+        let next = if is_move {
+            parent_moves + 1
+        } else {
+            parent_moves
+        };
         for &child in tree.node(id).children.iter().rev() {
             mn_stack.push((child, next));
         }
     }
 
-    TreeLayout { positions, max_col, max_row, move_numbers }
+    TreeLayout {
+        positions,
+        max_col,
+        max_row,
+        move_numbers,
+    }
 }
 
 /// Compute translation to center the cursor node in the viewport.
-fn cursor_translation(
-    layout: &TreeLayout,
-    cursor: NodeId,
-    bounds: Rectangle,
-) -> (f32, f32) {
+fn cursor_translation(layout: &TreeLayout, cursor: NodeId, bounds: Rectangle) -> (f32, f32) {
     let (col, row) = layout.positions.get(&cursor).copied().unwrap_or((0, 0));
     let cursor_x = PANEL_MARGIN + col as f32 * NODE_PITCH;
     let cursor_y = PANEL_MARGIN + row as f32 * NODE_PITCH;

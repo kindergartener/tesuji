@@ -17,11 +17,24 @@ pub struct GameTree {
     pub roots: Vec<NodeId>,
 }
 
+impl Default for GameTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GameTree {
     /// Create an empty game tree with a single empty root node.
     pub fn new() -> Self {
-        let root = TreeNode { properties: Vec::new(), parent: None, children: Vec::new() };
-        GameTree { nodes: vec![root], roots: vec![0] }
+        let root = TreeNode {
+            properties: Vec::new(),
+            parent: None,
+            children: Vec::new(),
+        };
+        GameTree {
+            nodes: vec![root],
+            roots: vec![0],
+        }
     }
 
     pub fn node(&self, id: NodeId) -> &TreeNode {
@@ -35,7 +48,11 @@ impl GameTree {
     /// Append a new child node under `parent` and return its `NodeId`.
     pub fn add_node(&mut self, parent: NodeId, props: Vec<SGFProperty>) -> NodeId {
         let id = self.nodes.len();
-        self.nodes.push(TreeNode { properties: props, parent: Some(parent), children: Vec::new() });
+        self.nodes.push(TreeNode {
+            properties: props,
+            parent: Some(parent),
+            children: Vec::new(),
+        });
         self.nodes[parent].children.push(id);
         id
     }
@@ -56,11 +73,17 @@ impl GameTree {
     }
 
     pub fn iter_mainline(&self, start: NodeId) -> MainlineIter<'_> {
-        MainlineIter { tree: self, current: Some(start) }
+        MainlineIter {
+            tree: self,
+            current: Some(start),
+        }
     }
 
     pub fn iter_subtree(&self, start: NodeId) -> SubtreeIter<'_> {
-        SubtreeIter { tree: self, stack: vec![start] }
+        SubtreeIter {
+            tree: self,
+            stack: vec![start],
+        }
     }
 }
 

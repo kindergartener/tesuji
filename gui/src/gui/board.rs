@@ -15,8 +15,8 @@ use iced::{
     window,
 };
 
-use tesuji::sgf::{Board, Cell};
 use crate::gui::{Message, assets::BoardAssets, theme};
+use tesuji::sgf::{Board, Cell};
 
 /// Stone radius as a fraction of cell size.
 pub const STONE_RADIUS_RATIO: f32 = 0.48;
@@ -657,7 +657,11 @@ impl BoardMetrics {
 fn col_label(col: usize) -> char {
     let c = b'A' + col as u8;
     // Skip 'I' to avoid confusion with 'J'
-    if c >= b'I' { (c + 1) as char } else { c as char }
+    if c >= b'I' {
+        (c + 1) as char
+    } else {
+        c as char
+    }
 }
 
 /// Generate coordinate label primitives for all 4 sides of the board.
@@ -678,7 +682,10 @@ fn build_labels(metrics: &BoardMetrics) -> Vec<DrawPrimitive> {
         // Top
         out.push(DrawPrimitive::DrawText {
             content: label.clone(),
-            position: Point { x: p.x, y: first.y - pad },
+            position: Point {
+                x: p.x,
+                y: first.y - pad,
+            },
             size: font_size,
             color: theme::LABEL_COLOR,
         });
@@ -687,7 +694,10 @@ fn build_labels(metrics: &BoardMetrics) -> Vec<DrawPrimitive> {
         let p_bot = metrics.coord_to_pixel(col, size - 1);
         out.push(DrawPrimitive::DrawText {
             content: label,
-            position: Point { x: p_bot.x, y: last.y + pad },
+            position: Point {
+                x: p_bot.x,
+                y: last.y + pad,
+            },
             size: font_size,
             color: theme::LABEL_COLOR,
         });
@@ -702,7 +712,10 @@ fn build_labels(metrics: &BoardMetrics) -> Vec<DrawPrimitive> {
         // Left
         out.push(DrawPrimitive::DrawText {
             content: label.clone(),
-            position: Point { x: first.x - pad, y: p.y },
+            position: Point {
+                x: first.x - pad,
+                y: p.y,
+            },
             size: font_size,
             color: theme::LABEL_COLOR,
         });
@@ -711,7 +724,10 @@ fn build_labels(metrics: &BoardMetrics) -> Vec<DrawPrimitive> {
         let p_right = metrics.coord_to_pixel(size - 1, row);
         out.push(DrawPrimitive::DrawText {
             content: label,
-            position: Point { x: p_right.x + pad, y: p_right.y },
+            position: Point {
+                x: p_right.x + pad,
+                y: p_right.y,
+            },
             size: font_size,
             color: theme::LABEL_COLOR,
         });

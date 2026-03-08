@@ -36,7 +36,10 @@ impl BoardAssets {
         let shadow_path = dir.join(SHADOW_FILE);
 
         assert!(
-            wood_path.exists() && black_path.exists() && white_path.exists() && shadow_path.exists(),
+            wood_path.exists()
+                && black_path.exists()
+                && white_path.exists()
+                && shadow_path.exists(),
             "Missing asset files in assets/. Required: {WOOD_FILE}, {BLACK_STONE_FILE}, {WHITE_STONE_FILE}, {SHADOW_FILE}"
         );
 

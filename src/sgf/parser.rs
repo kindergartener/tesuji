@@ -38,7 +38,7 @@ impl SGFParser {
 
     fn property(input: Node) -> ParseResult<SGFProperty> {
         let span = input.as_span();
-        let err = |e: &dyn Display| to_parse_err(e, span.clone());
+        let err = |e: &dyn Display| to_parse_err(e, span);
         let mut children = input.into_children();
 
         let ident_node = children.next().expect("Property must have prop_ident");
@@ -51,8 +51,8 @@ impl SGFParser {
 
         Ok(match ident.as_str() {
             "AP" => SGFProperty::AP(first_val),
-            "B"  => SGFProperty::B(first_val.parse().map_err(|e| err(&e))?),
-            "W"  => SGFProperty::W(first_val.parse().map_err(|e| err(&e))?),
+            "B" => SGFProperty::B(first_val.parse().map_err(|e| err(&e))?),
+            "W" => SGFProperty::W(first_val.parse().map_err(|e| err(&e))?),
             "AB" => SGFProperty::AB(values.iter().filter_map(|v| v.parse().ok()).collect()),
             "AW" => SGFProperty::AW(values.iter().filter_map(|v| v.parse().ok()).collect()),
             "CA" => SGFProperty::CA(first_val.parse().map_err(|e| err(&e))?),
@@ -67,8 +67,8 @@ impl SGFParser {
             "WR" => SGFProperty::WR(first_val),
             "HA" => SGFProperty::HA(first_val.parse().map_err(|e| err(&e))?),
             "RE" => SGFProperty::RE(first_val),
-            "C"  => SGFProperty::C(first_val),
-            _    => SGFProperty::Unknown(ident, values),
+            "C" => SGFProperty::C(first_val),
+            _ => SGFProperty::Unknown(ident, values),
         })
     }
 
@@ -84,9 +84,9 @@ impl SGFParser {
 
         for child in input.into_children() {
             match child.as_rule() {
-                Rule::node   => nodes.push(Self::node(child)?),
+                Rule::node => nodes.push(Self::node(child)?),
                 Rule::object => children.push(Self::object(child)?),
-                _            => {}
+                _ => {}
             }
         }
 
@@ -102,7 +102,9 @@ impl SGFParser {
 
 fn to_parse_err(e: impl Display, span: pest::Span) -> pest_consume::Error<Rule> {
     pest_consume::Error::new_from_span(
-        pest::error::ErrorVariant::CustomError { message: e.to_string() },
+        pest::error::ErrorVariant::CustomError {
+            message: e.to_string(),
+        },
         span,
     )
 }
@@ -114,7 +116,10 @@ fn to_parse_err(e: impl Display, span: pest::Span) -> pest_consume::Error<Rule> 
 impl GameTree {
     /// Flatten a list of `ParsedObject`s into an arena-based `GameTree`.
     fn ingest(parsed_objects: Vec<ParsedObject>) -> Self {
-        let mut tree = GameTree { nodes: Vec::new(), roots: Vec::new() };
+        let mut tree = GameTree {
+            nodes: Vec::new(),
+            roots: Vec::new(),
+        };
         for parsed in parsed_objects {
             if let Some(root_id) = tree.ingest_object(parsed, None) {
                 tree.roots.push(root_id);

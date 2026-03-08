@@ -7,7 +7,10 @@ pub struct TreeCursor<'a> {
 
 impl<'a> TreeCursor<'a> {
     pub fn new(tree: &'a GameTree, start: NodeId) -> Self {
-        Self { tree, current: start }
+        Self {
+            tree,
+            current: start,
+        }
     }
 
     pub fn node_id(&self) -> NodeId {
