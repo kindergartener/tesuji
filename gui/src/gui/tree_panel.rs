@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use iced::{Color, Event, Point, Rectangle, Vector, mouse};
 use iced::widget::canvas::{self, Action, Frame, Path, Stroke};
 
-use crate::sgf::{GameTree, NodeId, SGFProperty};
+use tesuji::sgf::{GameTree, NodeId, SGFProperty};
 use crate::gui::{Message, theme};
 
 const NODE_RADIUS: f32 = 8.0;

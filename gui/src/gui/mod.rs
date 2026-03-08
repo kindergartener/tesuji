@@ -12,20 +12,14 @@ use iced::{
     widget::{button, canvas::Canvas, column, container, row, rule, text, Space},
 };
 
-use crate::{
-    EditCommand, Editor,
-    gui::{
-        assets::BoardAssets,
-        board::{BoardWidget, current_player},
-        tree_panel::TreePanelProgram,
-    },
-    parse_sgf,
-    sgf::{
-        Board, Cell, GameTree, NodeId, SGFProperty,
-        count_liberties, find_group, orthogonal_neighbors,
-        node::GoCoord,
-    },
-    write_sgf,
+use tesuji::{EditCommand, Editor, parse_sgf, write_sgf};
+use tesuji::sgf::{Board, Cell, GameTree, NodeId, SGFProperty, count_liberties, find_group, orthogonal_neighbors};
+use tesuji::sgf::node::GoCoord;
+
+use crate::gui::{
+    assets::BoardAssets,
+    board::{BoardWidget, current_player},
+    tree_panel::TreePanelProgram,
 };
 
 pub struct GuiApp {
@@ -644,7 +638,7 @@ struct GameInfo {
 }
 
 /// Extract game info from the root node of the active game.
-fn extract_game_info(tree: &crate::sgf::GameTree, root: NodeId) -> GameInfo {
+fn extract_game_info(tree: &GameTree, root: NodeId) -> GameInfo {
     let mut info = GameInfo {
         white_name: String::new(),
         black_name: String::new(),
@@ -670,7 +664,7 @@ fn extract_game_info(tree: &crate::sgf::GameTree, root: NodeId) -> GameInfo {
 }
 
 fn new_game_tree() -> GameTree {
-    use crate::sgf::node::{FileFormat, GameType, Komi};
+    use tesuji::sgf::node::{FileFormat, GameType, Komi};
     let mut tree = GameTree::new();
     tree.node_mut(tree.roots[0]).properties = vec![
         SGFProperty::GM(GameType::Go),

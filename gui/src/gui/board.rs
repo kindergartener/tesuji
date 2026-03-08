@@ -15,10 +15,8 @@ use iced::{
     window,
 };
 
-use crate::{
-    gui::{Message, assets::BoardAssets, theme},
-    sgf::{Board, Cell},
-};
+use tesuji::sgf::{Board, Cell};
+use crate::gui::{Message, assets::BoardAssets, theme};
 
 /// Stone radius as a fraction of cell size.
 pub const STONE_RADIUS_RATIO: f32 = 0.48;

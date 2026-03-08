@@ -3919,12 +3919,19 @@ dependencies = [
  "chrono",
  "clap",
  "clap_complete",
- "criterion",
- "iced",
  "pest",
  "pest_consume",
  "pest_derive",
+]
+
+[[package]]
+name = "tesuji-gui"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "iced",
  "rfd",
+ "tesuji",
  "tokio",
 ]
 

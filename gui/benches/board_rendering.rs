@@ -1,8 +1,8 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use iced::Size;
 
-use tesuji::gui::assets::BoardAssets;
-use tesuji::gui::board::{BoardMetrics, build_board_primitives, build_board_primitives_textured};
+use tesuji_gui::gui::assets::BoardAssets;
+use tesuji_gui::gui::board::{BoardMetrics, build_board_primitives, build_board_primitives_textured};
 use tesuji::sgf::{Board, Cell};
 
 /// Create an empty 19×19 board.
