@@ -1,3 +1,4 @@
+pub mod assets;
 pub mod board;
 pub mod hotkeys;
 pub mod io;
@@ -14,7 +15,8 @@ use iced::{
 use crate::{
     EditCommand, Editor,
     gui::{
-        board::{BoardProgram, current_player},
+        assets::BoardAssets,
+        board::{BoardWidget, current_player},
         tree_panel::TreePanelProgram,
     },
     parse_sgf,
@@ -38,6 +40,8 @@ pub struct GuiApp {
     pub status_message: Option<StatusMessage>,
     pub hover_coord: Option<(usize, usize)>,
     pub confirm_delete: bool,
+    pub show_fps: bool,
+    pub assets: BoardAssets,
 }
 
 pub struct StatusMessage {
@@ -75,6 +79,7 @@ pub enum Message {
     // Board interaction
     BoardClicked { col: usize, row: usize },
     BoardHovered { col: Option<usize>, row: Option<usize> },
+    BoardResized { cell_size: f32 },
     PassRequested,
 
     // Delete node
@@ -101,6 +106,7 @@ pub enum Message {
     NewGameRequested,
     SelectGame(usize),
     DismissStatus,
+    ToggleFps,
 }
 
 impl GuiApp {
@@ -118,6 +124,8 @@ impl GuiApp {
                 status_message: None,
                 hover_coord: None,
                 confirm_delete: false,
+                show_fps: false,
+                assets: BoardAssets::load(),
             },
             Task::none(),
         )
@@ -226,6 +234,9 @@ impl GuiApp {
             Message::BoardHovered { col, row } => {
                 self.hover_coord = col.zip(row);
             }
+            Message::BoardResized { cell_size: _ } => {
+                // Reserved for future use (e.g. resolution-dependent rendering).
+            }
             Message::PassRequested => {
                 let color = current_player(&self.cached_board);
                 let prop = match color {
@@ -330,6 +341,9 @@ impl GuiApp {
             Message::DismissStatus => {
                 self.status_message = None;
             }
+            Message::ToggleFps => {
+                self.show_fps = !self.show_fps;
+            }
         }
 
         Task::none()
@@ -346,16 +360,16 @@ impl GuiApp {
         // Compute last move coord from the current cursor node
         let last_move = last_move_coord(&self.editor);
 
-        // ── Left column: board canvas ──
-        let program = BoardProgram {
+        // ── Left column: board widget ──
+        let board_widget = BoardWidget {
             board,
             hover: self.hover_coord,
             last_move,
+            show_fps: self.show_fps,
+            assets: &self.assets,
         };
-        let board_canvas = Canvas::new(program)
-            .width(Length::Fill)
-            .height(Length::Fill);
-        let left_col = container(board_canvas)
+        let board_element: Element<'_, Message> = board_widget.into();
+        let left_col = container(board_element)
             .width(Length::Fill)
             .height(Length::Fill);
 

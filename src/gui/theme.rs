@@ -3,7 +3,7 @@ use iced::{Color, color};
 // Board
 pub const BOARD_WOOD: Color = color!(0xF3D07E);
 pub const BORDER_LINE: Color = color!(0x663918);
-pub const GRID_LINE: Color = color!(0x663918, 0.6);
+pub const GRID_LINE: Color = color!(0x704526);
 pub const STAR_POINT: Color = GRID_LINE;
 
 // Stones
@@ -16,6 +16,9 @@ pub const BLACK_OUTLINE: Color = color!(0x1C1C1C, 0.5);
 pub const WHITE_HIGHLIGHT: Color = color!(0xFFFFFF, 0.33);
 pub const WHITE_SHADE: Color = color!(0xACA18B, 0.25);
 pub const WHITE_OUTLINE: Color = color!(0x7B6637, 0.25);
+
+// Board labels
+pub const LABEL_COLOR: Color = color!(0x4A3520);
 
 // UI
 pub const LAST_MOVE_MARKER: Color = color!(0xF92A71);

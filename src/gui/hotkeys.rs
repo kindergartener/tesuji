@@ -58,6 +58,7 @@ fn handle_key_press(key: Key, modifiers: Modifiers) -> Option<Message> {
         Key::Character(ref c) if c.as_str() == "z" && modifiers.control() => {
             Some(Hotkey::Undo.to_message())
         }
+        Key::Named(Named::F3) => Some(Message::ToggleFps),
         _ => None,
     }
 }

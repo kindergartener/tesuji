@@ -6,5 +6,6 @@ fn main() -> iced::Result {
     )
     .title("Tesuji")
     .subscription(tesuji::gui::GuiApp::subscription)
+    .antialiasing(true)
     .run()
 }
