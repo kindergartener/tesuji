@@ -1,11 +1,17 @@
 use crate::sgf::{GameTree, MainlineIter, NodeId, SubtreeIter, TreeNode};
 
+/// A lightweight cursor into a borrowed [`GameTree`].
+///
+/// Provides directional navigation and iteration starting from any node.
+/// Because `TreeCursor` borrows the tree immutably, it cannot be used to
+/// mutate the tree — use [`Editor`](crate::editor::Editor) for that.
 pub struct TreeCursor<'a> {
     tree: &'a GameTree,
     current: NodeId,
 }
 
 impl<'a> TreeCursor<'a> {
+    /// Create a cursor positioned at `start` within `tree`.
     pub fn new(tree: &'a GameTree, start: NodeId) -> Self {
         Self {
             tree,

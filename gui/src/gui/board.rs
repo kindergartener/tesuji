@@ -656,7 +656,7 @@ impl BoardMetrics {
 /// Go column letter for a given column index (0-based). Skips 'I'.
 fn col_label(col: usize) -> char {
     let c = b'A' + col as u8;
-    // Skip 'I' to avoid confusion with 'J'
+    // Skip 'I' to avoid confusion with the digit '1'
     if c >= b'I' {
         (c + 1) as char
     } else {

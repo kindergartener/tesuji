@@ -1,8 +1,22 @@
+//! Command-pattern editor over a [`GameTree`].
+//!
+//! The entire mutable surface of the editor is [`Editor::apply`], which
+//! accepts an [`EditCommand`] and updates the tree and cursor accordingly.
+//! Navigation commands do not push to the undo stack; structural mutations
+//! (add, set, remove, delete) do.
+//!
+//! Frontends implement the [`Adapter`] trait and drive the event loop via
+//! [`run_editor`].
+
 mod cursor;
 pub use cursor::TreeCursor;
 
 use crate::sgf::{GameTree, NodeId, SGFProperty};
 
+/// An SGF game-tree editor with undo/redo support.
+///
+/// `Editor` owns a [`GameTree`] and a `cursor` — the [`NodeId`] of the
+/// currently focused node.  All mutations go through [`Editor::apply`].
 pub struct Editor {
     pub tree: GameTree,
     pub cursor: NodeId,
@@ -10,25 +24,48 @@ pub struct Editor {
     redo_stack: Vec<(GameTree, NodeId)>,
 }
 
+/// All operations that can be applied to an [`Editor`].
+///
+/// Variants beginning with `Navigate` move the cursor without modifying the
+/// tree and are therefore not recorded on the undo stack.
 pub enum EditCommand {
+    /// Append a new child node containing `prop` and move the cursor to it.
     AddMove(SGFProperty),
+    /// Insert or replace a property on the current node (keyed by SGF tag).
     SetProperty(SGFProperty),
+    /// Remove the property with the given SGF tag from the current node.
     RemoveProperty(String),
+    /// Delete the current node (and its whole subtree) and retreat to its parent.
+    /// No-op when already at the root.
     DeleteCurrentNode,
+    /// Add an empty child node at the current position without moving the cursor.
     AppendVariation,
+    /// Move the cursor to the first child of the current node, if one exists.
     NavigateNext,
+    /// Move the cursor to the parent of the current node, if one exists.
     NavigatePrev,
+    /// Move the cursor to the `n`th child of the current node (0-indexed).
     NavigateBranch(usize),
+    /// Walk up to the nearest branch point and switch to the next sibling variation,
+    /// then descend the same number of mainline steps.
     NavigateNextVariation,
+    /// Like [`NavigateNextVariation`](EditCommand::NavigateNextVariation) but selects the previous sibling.
     NavigatePrevVariation,
+    /// Like [`NavigateNextVariation`](EditCommand::NavigateNextVariation) but selects the first sibling.
     NavigateFirstVariation,
+    /// Like [`NavigateNextVariation`](EditCommand::NavigateNextVariation) but selects the last sibling.
     NavigateLastVariation,
+    /// Move the cursor to the root of the current game record.
     NavigateFirst,
+    /// Move the cursor to the leaf of the mainline from the current position.
     NavigateLast,
+    /// Move the cursor directly to the given [`NodeId`].
     NavigateToNode(NodeId),
     /// Replace the entire tree (e.g. after loading a new file).
     Load(GameTree),
+    /// Undo the most recent mutating command.
     Undo,
+    /// Redo the most recently undone command.
     Redo,
 }
 
@@ -57,6 +94,9 @@ fn property_key(p: &SGFProperty) -> &str {
 }
 
 impl Editor {
+    /// Create a new editor from a parsed [`GameTree`].
+    ///
+    /// The cursor is placed on the first root node.
     pub fn new(tree: GameTree) -> Self {
         let cursor = tree.roots.first().copied().unwrap_or(0);
         Self {
@@ -67,6 +107,12 @@ impl Editor {
         }
     }
 
+    /// Apply a command to the editor.
+    ///
+    /// Mutating commands ([`EditCommand::AddMove`], [`EditCommand::SetProperty`],
+    /// [`EditCommand::RemoveProperty`], [`EditCommand::DeleteCurrentNode`],
+    /// [`EditCommand::AppendVariation`]) snapshot the current state onto the
+    /// undo stack and clear the redo stack before executing.
     pub fn apply(&mut self, cmd: EditCommand) {
         let is_mutating = matches!(
             cmd,
@@ -335,6 +381,9 @@ mod tests {
     }
 }
 
+/// Interface for editor front-ends.
+///
+/// Implement this trait and call [`run_editor`] to plug in a new UI backend.
 pub trait Adapter {
     /// Render the current editor state to the adapter's medium.
     fn render(&mut self, editor: &Editor) -> anyhow::Result<()>;
@@ -342,7 +391,11 @@ pub trait Adapter {
     fn next_command(&mut self) -> anyhow::Result<Option<EditCommand>>;
 }
 
-/// TEA event loop: render -> input -> update → repeat.
+/// Run the editor event loop: render → input → apply → repeat.
+///
+/// Returns when [`Adapter::next_command`] returns `None` (user quit) or
+/// propagates any error returned by [`Adapter::render`] or
+/// [`Adapter::next_command`].
 pub fn run_editor(mut editor: Editor, adapter: &mut impl Adapter) -> anyhow::Result<()> {
     loop {
         adapter.render(&editor)?;

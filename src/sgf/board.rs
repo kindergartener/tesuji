@@ -3,6 +3,7 @@ use crate::sgf::{
     tree::{GameTree, NodeId, TreeNode},
 };
 
+/// The occupancy state of a single board intersection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cell {
     Empty,
@@ -37,7 +38,7 @@ impl Neighbors {
 ///
 /// Typical usage is something like:
 ///
-/// ```text
+/// ```rust
 /// // After every EditCommand that moves the cursor or modifies the tree, recompute the board and redraw:
 /// let board = Board::from_tree(&editor.tree, editor.cursor);
 /// render_board(&board);

@@ -1,7 +1,17 @@
 use crate::sgf::node::SGFProperty;
 
+/// Index into the [`GameTree`] arena.
+///
+/// A `NodeId` is only meaningful for the `GameTree` that produced it.
+/// Passing a `NodeId` from one tree to another will either return
+/// unrelated data or panic.
 pub type NodeId = usize;
 
+/// A single node in the SGF game tree.
+///
+/// Each node holds a list of [`SGFProperty`] values (the properties written
+/// between `;` markers in the SGF file), a link to its parent, and an ordered
+/// list of children (variations).
 #[derive(Clone)]
 pub struct TreeNode {
     pub properties: Vec<SGFProperty>,
@@ -9,6 +19,14 @@ pub struct TreeNode {
     pub children: Vec<NodeId>,
 }
 
+/// Arena-allocated SGF game tree.
+///
+/// All nodes live in a flat `Vec<TreeNode>` indexed by [`NodeId`].  There are
+/// no recursive smart pointers.  Use [`GameTree::node`] / [`GameTree::node_mut`]
+/// to access nodes and [`GameTree::add_node`] to extend the tree.
+///
+/// A file that contains multiple game records results in a tree with multiple
+/// entries in `roots`.
 #[derive(Clone)]
 pub struct GameTree {
     /// Arena storage — private to external users; pub(crate) for the parser.
@@ -37,10 +55,20 @@ impl GameTree {
         }
     }
 
+    /// Return a shared reference to the node at `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is out of range (i.e. not produced by this tree).
     pub fn node(&self, id: NodeId) -> &TreeNode {
         &self.nodes[id]
     }
 
+    /// Return an exclusive reference to the node at `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is out of range (i.e. not produced by this tree).
     pub fn node_mut(&mut self, id: NodeId) -> &mut TreeNode {
         &mut self.nodes[id]
     }
@@ -63,9 +91,7 @@ impl GameTree {
     /// reclaimed, so the Vec only ever grows. For typical SGF editing sessions
     /// this is negligible (a full 300-move game is ~300 nodes). If heavy
     /// editing (repeated delete/add cycles) becomes a real use-case, a
-    /// compaction pass or a free-list could be introduced: keep a
-    /// `Vec<NodeId>` of recycled slots and hand them out in `add_node` before
-    /// pushing to the end of the Vec.
+    /// compaction pass or a free-list could be introduced.
     pub fn remove_subtree(&mut self, id: NodeId) {
         if let Some(parent) = self.nodes[id].parent {
             self.nodes[parent].children.retain(|&c| c != id);

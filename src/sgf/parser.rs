@@ -161,6 +161,16 @@ impl GameTree {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Parse an SGF string into a [`GameTree`].
+///
+/// The input may contain one or more top-level game records; each becomes a
+/// separate root in the returned tree.  Unknown SGF properties are preserved
+/// as [`SGFProperty::Unknown`] rather than rejected.
+///
+/// # Errors
+///
+/// Returns an error if the input does not conform to the SGF grammar, or if a
+/// known property value cannot be parsed (e.g. a non-numeric `KM` value).
 pub fn parse_sgf(input: &str) -> Result<GameTree> {
     let inputs = SGFParser::parse(Rule::file, input)?;
     let input = inputs.single()?;

@@ -5,16 +5,31 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 
-/// Encodes Go board coordinates as two lowercase letters from a-s
-/// Stored as two 5-bit values packed into a u16:
-/// bits [4:0] = first
-/// bits [9:5] = second
+/// A pair of SGF board coordinates encoded as two lowercase ASCII letters (`a`–`s`).
+///
+/// SGF uses column-first, row-second ordering (e.g. `dd` = column 4, row 4 in
+/// 1-based terms, or the traditional go "4-4 point").  Coordinates are stored
+/// as two 5-bit indices packed into a `u16`.
+///
+/// The special value `tt` (index 19 on each axis) represents a pass; use
+/// [`GoCoord::pass`] to construct it and [`GoCoord::is_pass`] to detect it.
+///
+/// # Display coordinates vs. SGF coordinates
+///
+/// SGF uses `a`–`s` (19 consecutive letters, no gaps).  Board editors
+/// conventionally display columns as `A`–`T` but skip `I` to avoid
+/// confusion with the digit `1`;  this is just a rendering concern.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GoCoord(u16);
 
+/// Komi value stored internally as half-points to avoid floating-point rounding.
+///
+/// Standard komi is 6.5 points.  Displays as `"6.5"` or `"7"` depending on
+/// whether the value is a half-point.
 #[derive(Debug, Clone)]
 pub struct Komi(i16);
 
+/// Character encoding declared in the SGF `CA` property.
 #[derive(Debug, Clone, Default)]
 pub enum Charset {
     #[default]
@@ -23,6 +38,7 @@ pub enum Charset {
     Other(String),
 }
 
+/// SGF file-format version declared in the `FF` property.
 #[repr(u8)]
 #[derive(Debug, Clone, Default)]
 pub enum FileFormat {
@@ -33,6 +49,10 @@ pub enum FileFormat {
     FF4,
 }
 
+/// Game type declared in the SGF `GM` property.
+///
+/// Only Go (`GM[1]`) is handled by the board simulator; all other values are
+/// preserved as [`GameType::Other`].
 #[repr(u8)]
 #[derive(Debug, Clone, Default)]
 pub enum GameType {
@@ -41,67 +61,90 @@ pub enum GameType {
     Other(u8),
 }
 
+/// A single [SGF property](https://www.red-bean.com/sgf/properties.html) parsed from a node.
+///
+/// Unrecognized properties are captured as [`SGFProperty::Unknown`] so they
+/// can be captured in [`parse_sgf`](crate::parse_sgf) and
+/// [`write_sgf`](crate::write_sgf) without loss.
 #[derive(Debug, Clone)]
 pub enum SGFProperty {
-    /// Application
+    /// `AP` — name of the application that created the file.
     AP(String),
 
-    /// Black move
+    /// `B` — a black move.  The coordinate `tt` represents a pass;
+    /// use [`GoCoord::is_pass`] to check.
     B(GoCoord),
 
-    /// Charset
+    /// `CA` — character encoding of the file (e.g. UTF-8).
     CA(Charset),
 
-    /// Date
+    /// `DT` — date the game was played (free-form string, e.g. `"1846-09-11"`).
     DT(String),
 
-    /// File format
+    /// `FF` — SGF file-format version.
     FF(FileFormat),
 
-    /// Game
+    /// `GM` — game type. `GM[1]` is Go; other values are stored as
+    /// [`GameType::Other`] and are not simulated by [`Board`](crate::sgf::Board).
     GM(GameType),
 
-    /// Komi (in half-points)
+    /// `KM` — komi (points given to white to compensate for black's first-move
+    /// advantage).  Stored in half-points to avoid floating-point rounding.
     KM(Komi),
 
-    /// White move
+    /// `W` — a white move.  The coordinate `tt` represents a pass;
+    /// use [`GoCoord::is_pass`] to check.
     W(GoCoord),
 
-    /// Board size
+    /// `SZ` — board size in intersections (e.g. `19` for a standard board).
+    /// Only 19×19 boards currently supported by the board simulator.
     SZ(u8),
 
-    /// Add black stones for handicap games
+    /// `AB` — add black stones (setup, not a move).  Used for handicap placement
+    /// and problem diagrams.  Does not increment the move counter.
     AB(Vec<GoCoord>),
 
-    /// Add white stones for handicap games
+    /// `AW` — add white stones (setup, not a move).  Does not increment the
+    /// move counter.
     AW(Vec<GoCoord>),
 
-    /// Black player name
+    /// `PB` — black player's name.
     PB(String),
 
-    /// White player name
+    /// `PW` — white player's name.
     PW(String),
 
-    /// Black rank
+    /// `BR` — black player's rank (e.g. `"9p"`, `"3k"`).
     BR(String),
 
-    /// White rank
+    /// `WR` — white player's rank.
     WR(String),
 
-    /// Handicap
+    /// `HA` — handicap stone count.  The actual stone placements are given by
+    /// [`SGFProperty::AB`].
     HA(u8),
 
-    /// Result
+    /// `RE` — game result (free-form string, e.g. `"B+3.5"`, `"W+R"`, `"0"`).
     RE(String),
 
-    /// Comment
+    /// `C` — node comment.
     C(String),
 
-    /// Application-specific or unrecognized property
+    /// Any property tag not recognized by the parser.  The first field is the
+    /// raw tag string (e.g. `"LB"`); the second is the list of raw value
+    /// strings.
     Unknown(String, Vec<String>),
 }
 
 impl GoCoord {
+    /// Construct a coordinate from two SGF characters.
+    ///
+    /// Both characters must be ASCII lowercase letters in the range `a`–`s`
+    /// (0–18, inclusive).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either character is outside `a`–`s`.
     pub fn new(a: char, b: char) -> Result<Self> {
         let encode = |c: char| -> Option<u16> {
             if c.is_ascii_lowercase() {
@@ -129,14 +172,17 @@ impl GoCoord {
         Self(19 | (19 << 5))
     }
 
+    /// Return `true` if this coordinate represents a pass (`tt`).
     pub fn is_pass(self) -> bool {
         (self.0 & 0b11111) == 19
     }
 
+    /// The column character (first SGF character, e.g. `'d'` in `dd`).
     pub fn first(self) -> char {
         (b'a' + (self.0 & 0b11111) as u8) as char
     }
 
+    /// The row character (second SGF character, e.g. `'d'` in `dd`).
     pub fn second(self) -> char {
         (b'a' + ((self.0 >> 5) & 0b11111) as u8) as char
     }
