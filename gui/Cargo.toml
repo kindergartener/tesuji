@@ -2,23 +2,26 @@
 name = "tesuji-gui"
 version = "0.1.0"
 edition = "2024"
+description = "SGF editor for Go game records"
+repository = "https://github.com/kindergartener/tesuji"
+license = "MIT OR Apache-2.0"
 
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
-name = "tesuji-gui"
+name = "tesuji"
 path = "src/main.rs"
 
+[[bench]]
+harness = false
+name = "board_rendering"
+
 [dependencies]
-tesuji = { path = ".." }
-iced = { version = "0.14.0", features = ["advanced", "canvas", "tokio", "image"] }
+iced = { version = "0.14.0", features = ["advanced", "canvas", "image", "tokio"] }
 rfd = "0.17.2"
-tokio = { version = "1", features = ["rt-multi-thread", "fs"] }
+tesuji = { path = ".." }  # replace with "0.1.0" once lib is published on crates
+tokio = { version = "1", features = ["fs", "rt-multi-thread"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "board_rendering"
-harness = false
