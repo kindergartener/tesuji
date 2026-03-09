@@ -415,6 +415,10 @@ impl GuiApp {
                 .width(Length::Fill)
                 .height(Length::Fill),
         )
+        .style(|_: &iced::Theme| iced::widget::container::Style {
+            background: Some(iced::Background::Color(Color::from_rgb(0.93, 0.93, 0.93))),
+            ..Default::default()
+        })
         .height(Length::Fill);
 
         // Engine console placeholder

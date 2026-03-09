@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use iced::widget::canvas::{self, Action, Frame, Path, Stroke};
-use iced::{Color, Event, Point, Rectangle, Vector, mouse};
+use iced::{Color, Event, Point, Rectangle, mouse};
 
 use crate::gui::{Message, theme};
 use tesuji::sgf::{GameTree, NodeId, SGFProperty};
@@ -214,7 +214,7 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
 
     fn draw(
         &self,
-        state: &TreePanelState,
+        _state: &TreePanelState,
         renderer: &iced::Renderer,
         _theme: &iced::Theme,
         bounds: Rectangle,
@@ -222,17 +222,17 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
     ) -> Vec<canvas::Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
 
-        // Panel background
-        frame.fill_rectangle(
-            Point::ORIGIN,
-            bounds.size(),
-            Color::from_rgb(0.93, 0.93, 0.93),
-        );
-
         let layout = compute_layout(self.tree, self.root);
-
         let (tx, ty) = cursor_translation(&layout, self.cursor, bounds);
-        frame.translate(Vector::new(tx, ty));
+
+        // Convert (col, row) to screen coordinates without using frame.translate(),
+        // because fill_text does not respect the frame transform in iced 0.14.
+        let node_pos = |col: usize, row: usize| -> Point {
+            Point::new(
+                PANEL_MARGIN + col as f32 * NODE_PITCH + tx,
+                PANEL_MARGIN + row as f32 * NODE_PITCH + ty,
+            )
+        };
 
         let edge_stroke = Stroke::default()
             .with_color(Color::from_rgb(0.55, 0.55, 0.55))
@@ -240,27 +240,22 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
 
         // Draw edges (RELU-style)
         for (&id, &(col, row)) in &layout.positions {
-            let px = PANEL_MARGIN + col as f32 * NODE_PITCH;
-            let py = PANEL_MARGIN + row as f32 * NODE_PITCH;
+            let p = node_pos(col, row);
             for &child_id in &self.tree.node(id).children {
                 if let Some(&(child_col, _child_row)) = layout.positions.get(&child_id) {
-                    let cx = PANEL_MARGIN + child_col as f32 * NODE_PITCH;
-                    let cy = py + NODE_PITCH; // child is always one row below
+                    let c = node_pos(child_col, row + 1);
                     if child_col == col {
                         // mainline: straight vertical
-                        frame.stroke(
-                            &Path::line(Point::new(px, py), Point::new(cx, cy)),
-                            edge_stroke,
-                        );
+                        frame.stroke(&Path::line(p, c), edge_stroke);
                     } else {
                         // variation: horizontal then 45° diagonal
-                        let elbow_x = cx - NODE_PITCH;
-                        let path = Path::new(|p| {
-                            p.move_to(Point::new(px, py));
-                            if elbow_x > px {
-                                p.line_to(Point::new(elbow_x, py));
+                        let elbow_x = c.x - NODE_PITCH;
+                        let path = Path::new(|pb| {
+                            pb.move_to(p);
+                            if elbow_x > p.x {
+                                pb.line_to(Point::new(elbow_x, p.y));
                             }
-                            p.line_to(Point::new(cx, cy));
+                            pb.line_to(c);
                         });
                         frame.stroke(&path, edge_stroke);
                     }
@@ -277,9 +272,7 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
 
         // Draw nodes
         for (&id, &(col, row)) in &layout.positions {
-            let cx = PANEL_MARGIN + col as f32 * NODE_PITCH;
-            let cy = PANEL_MARGIN + row as f32 * NODE_PITCH;
-            let center = Point::new(cx, cy);
+            let center = node_pos(col, row);
 
             let move_prop = self.tree.node(id).properties.iter().find_map(|p| match p {
                 SGFProperty::B(c) => Some((theme::STONE_BLACK, *c, true)),
@@ -291,10 +284,10 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
                 // Gray diamond
                 let s = NODE_RADIUS * 1.2;
                 let diamond = Path::new(|p| {
-                    p.move_to(Point::new(cx, cy - s));
-                    p.line_to(Point::new(cx + s, cy));
-                    p.line_to(Point::new(cx, cy + s));
-                    p.line_to(Point::new(cx - s, cy));
+                    p.move_to(Point::new(center.x, center.y - s));
+                    p.line_to(Point::new(center.x + s, center.y));
+                    p.line_to(Point::new(center.x, center.y + s));
+                    p.line_to(Point::new(center.x - s, center.y));
                     p.close();
                 });
                 frame.fill(&diamond, Color::from_rgb(0.55, 0.55, 0.55));
@@ -302,10 +295,10 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
                 if id == self.cursor {
                     let rs = s + 3.0;
                     let ring = Path::new(|p| {
-                        p.move_to(Point::new(cx, cy - rs));
-                        p.line_to(Point::new(cx + rs, cy));
-                        p.line_to(Point::new(cx, cy + rs));
-                        p.line_to(Point::new(cx - rs, cy));
+                        p.move_to(Point::new(center.x, center.y - rs));
+                        p.line_to(Point::new(center.x + rs, center.y));
+                        p.line_to(Point::new(center.x, center.y + rs));
+                        p.line_to(Point::new(center.x - rs, center.y));
                         p.close();
                     });
                     frame.stroke(&ring, cursor_stroke);
@@ -330,7 +323,7 @@ impl<'a> canvas::Program<Message> for TreePanelProgram<'a> {
                         frame.fill_text(canvas::Text {
                             content: label,
                             position: center,
-                            size: iced::Pixels(8.0),
+                            size: iced::Pixels(9.0),
                             color: label_color,
                             align_x: iced::alignment::Horizontal::Center.into(),
                             align_y: iced::alignment::Vertical::Center.into(),
